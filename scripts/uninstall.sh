@@ -11,5 +11,5 @@ PY
   if ((unsafe)); then printf 'Cannot safely remove integration: %s file(s) contain unsynced or conflict data in %s\n' "$unsafe" "$state_file" >&2; exit 2; fi
 fi
 systemctl --user disable --now omarchy-drive-mount.service omarchy-drive-dbus.service omarchy-drive.service 2>/dev/null || true
-omarchy plugin remove io.github.omarchy-drive || true
+omarchy plugin remove placq.proton-drive || true
 printf 'The package can now be removed with: sudo pacman -Rns omarchy-drive\nPersistent state was preserved. Remote Proton Drive data was not touched.\n'

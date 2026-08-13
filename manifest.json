@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "id": "io.github.omarchy-drive",
+  "id": "placq.proton-drive",
   "name": "Omarchy Drive",
   "version": "0.1.0-alpha.1",
-  "author": "Omarchy Drive contributors",
+  "author": "placq",
   "description": "Unofficial Proton Drive integration for Omarchy Files",
   "kinds": ["service", "menu"],
   "entryPoints": {
