@@ -9,7 +9,8 @@ printf 'Install Omarchy Drive integration?\n\n• background service\n• FUSE f
 read -r -p 'Continue [y/N]? ' answer
 [[ $answer == [yY] ]] || exit 0
 (cd packaging/arch && makepkg -si --needed)
-plugin_dir="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/plugins/io.github.omarchy-drive"
+plugin_id="placq.proton-drive"
+plugin_dir="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/plugins/$plugin_id"
 mkdir -p "$plugin_dir"
 cp -a manifest.json omarchy LICENSE README.md "$plugin_dir/"
 mount_dir="$HOME/Proton Drive"; mkdir -p "$mount_dir"
@@ -23,7 +24,7 @@ else
   printf '\nNative integration installed but not started. Real Proton authentication is blocked in this alpha; no fake data was enabled.\n'
 fi
 omarchy-shell shell rescanPlugins || true
-omarchy plugin enable io.github.omarchy-drive || true
+omarchy plugin enable "$plugin_id" || true
 nautilus -q || true
 if $fake; then
   printf 'Verifying installation…\n'
