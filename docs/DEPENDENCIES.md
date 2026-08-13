@@ -5,7 +5,7 @@ Verified 2026-08-13.
 | Dependency | Version / reference | Notes |
 |---|---|---|
 | Proton Drive SDK | npm `@protontech/drive-sdk` 0.21.0; commit `82c362d0700dc423a51268b074f66037e46ba42a`; published 2026-08-11 | Exact lockfile pin; auth/session explicitly out of scope upstream |
-| Omarchy | `quattro` branch | manifest schema 1; `service` and `menu` entry points |
+| Omarchy | `quattro` branch | manifest schema 1; `service` and `bar-widget` entry points |
 | Quickshell | documentation 0.3.0 | QML plugin frontend |
 | GVfs | upstream 1.61.91 source | researched only; rejected for private backend ABI |
 | Nautilus | Arch 50.2.2-1 | libnautilus-extension API 4 / nautilus-python |

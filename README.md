@@ -41,7 +41,7 @@ See [architecture](docs/ARCHITECTURE.md), [development roadmap](docs/ROADMAP.md)
 - background event processing, queued-upload retry and configurable 20 GiB default cache limit;
 - FUSE3 adapter for browse/open/create/write/mkdir/rename/move/trash;
 - Nautilus context actions and status emblems;
-- Quattro `service` + `menu` plugin manifest and event stream;
+- Quattro `service` + `bar-widget` plugin manifest and event stream;
 - systemd user services, Arch packaging, safe install/uninstall and diagnostics.
 
 ## Data safety
