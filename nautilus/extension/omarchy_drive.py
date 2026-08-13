@@ -1,8 +1,8 @@
 from __future__ import annotations
 import json, os, socket, subprocess, threading
 from pathlib import Path
-from urllib.parse import unquote, urlparse
 from gi.repository import GObject, Nautilus
+from drive_logic import drive_path, node_id
 
 MOUNT = Path(os.environ.get("OMARCHY_DRIVE_MOUNT", str(Path.home()/"Proton Drive"))).resolve()
 SOCKET = os.environ.get("OMARCHY_DRIVE_SOCKET", f"{os.environ.get('XDG_RUNTIME_DIR', '/tmp')}/omarchy-drive.sock")
@@ -16,21 +16,9 @@ def rpc(method, **params):
     if "error" in response: raise RuntimeError(response["error"]["message"])
     return response["result"]
 
-def drive_path(info):
-    parsed=urlparse(info.get_uri())
-    if parsed.scheme != "file": return None
-    path=Path(unquote(parsed.path)).resolve()
-    try: path.relative_to(MOUNT); return path
-    except ValueError: return None
-
-def node_id(path):
-    value=os.getxattr(path, "user.omarchy-drive.node-id").decode()
-    if not value or "/" in value: raise ValueError("invalid node id")
-    return value
-
 class OmarchyDriveExtension(GObject.GObject, Nautilus.MenuProvider, Nautilus.InfoProvider):
     def update_file_info(self, info):
-        path=drive_path(info)
+        path=drive_path(info.get_uri(), MOUNT)
         if not path: return
         try:
             state=rpc("GetNodeStatus", nodeId=node_id(path))
@@ -42,7 +30,7 @@ class OmarchyDriveExtension(GObject.GObject, Nautilus.MenuProvider, Nautilus.Inf
     def get_file_items(self, files):
         selected=[]
         for info in files:
-            path=drive_path(info)
+            path=drive_path(info.get_uri(), MOUNT)
             if not path: return []
             try: selected.append(node_id(path))
             except (OSError, ValueError): return []

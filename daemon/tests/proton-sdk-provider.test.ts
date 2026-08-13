@@ -7,8 +7,8 @@ import { ProtonSdkProvider, PROTON_APP_VERSION } from "../src/proton-sdk-provide
 
 function mockClient() {
   const nodes: Record<string, Record<string, unknown>> = {
-    root: { uid:"root", name:"Proton Drive", type:"folder", treeEventScopeId:"scope-1", modificationTime:new Date(0).toISOString() },
-    file: { uid:"file", parentUid:"root", name:"hello.txt", type:"file", size:5, revisionUid:"rev-2", modificationTime:new Date(1).toISOString() }
+    root: { uid:"root", name:{ ok:true, value:"Proton Drive" }, type:"folder", treeEventScopeId:"scope-1", modificationTime:new Date(0) },
+    file: { uid:"file", parentUid:"root", name:{ ok:true, value:"hello.txt" }, type:"file", size:5, revisionUid:"rev-2", modificationTime:new Date(1) }
   };
   return {
     async getMyFilesRootFolder() { return nodes.root; }, async getNode(uid:string) { return nodes[uid]; },
@@ -27,6 +27,7 @@ function mockClient() {
 test("SDK adapter streams downloads to disk and identifies the third-party app", async () => {
   assert.match(PROTON_APP_VERSION, /^external-drive-omarchy_drive@/);
   const provider=new ProtonSdkProvider(mockClient() as never); const root=await provider.getRoot(); assert.equal(root.id, "root");
+  assert.equal(root.name, "Proton Drive"); assert.equal((await provider.getNode("file")).name, "hello.txt");
   const directory=await mkdtemp(join(tmpdir(), "omarchy-sdk-adapter-")); const target=join(directory, "hello.txt");
   const result=await provider.downloadToPath("file", target); assert.equal(result.revision, "rev-2"); assert.equal(await readFile(target, "utf8"), "hello");
 });

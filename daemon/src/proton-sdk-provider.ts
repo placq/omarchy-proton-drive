@@ -19,6 +19,24 @@ interface SdkClientLike {
   iterateEvents(scopeId: string, lastEventId?: string): AsyncIterable<SdkDriveEvent>;
 }
 
+function unwrapResult(value: unknown, field: string): string {
+  // Proton's public SDK uses Result<T, E> for decrypted fields. Keep the
+  // adapter tolerant of older-shaped test fixtures, but never stringify a
+  // Result object as "[object Object]".
+  if (value && typeof value === "object" && "ok" in value) {
+    const result = value as { ok: boolean; value?: unknown; error?: unknown };
+    if (!result.ok) throw new Error(`Unable to read node ${field}: ${String(result.error ?? "decryption failed")}`);
+    return String(result.value ?? "");
+  }
+  return String(value ?? "");
+}
+
+function dateMillis(value: unknown): number {
+  const date = value instanceof Date ? value : new Date(String(value ?? ""));
+  const millis = date.getTime();
+  return Number.isFinite(millis) ? millis : Date.now();
+}
+
 /** Thin adapter only. Authentication and construction of ProtonDriveClient live outside it. */
 export class ProtonSdkProvider implements DriveProvider {
   readonly kind = "proton-sdk" as const;
@@ -27,9 +45,9 @@ export class ProtonSdkProvider implements DriveProvider {
   private map(value: SdkNode): DriveNode {
     const activeRevision = value.activeRevision as Record<string, unknown> | undefined;
     return {
-      id: String(value.uid), parentId: value.parentUid ? String(value.parentUid) : null, name: String(value.name),
+      id: String(value.uid), parentId: value.parentUid ? String(value.parentUid) : null, name: unwrapResult(value.name, "name"),
       kind: String(value.type).toLowerCase().includes("folder") ? "folder" : "file",
-      size: Number(activeRevision?.size ?? value.size ?? 0), modifiedAt: new Date(String(value.modificationTime ?? Date.now())).getTime(),
+      size: Number(activeRevision?.size ?? value.size ?? 0), modifiedAt: dateMillis(value.modificationTime),
       revision: String(activeRevision?.uid ?? value.revisionUid ?? value.uid)
     };
   }

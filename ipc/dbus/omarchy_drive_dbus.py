@@ -10,6 +10,7 @@ from dbus_next.service import ServiceInterface, method, signal
 BUS_NAME = "io.github.placq.OmarchyProtonDrive1"
 OBJECT_PATH = "/io/github/placq/OmarchyProtonDrive1"
 SOCKET_PATH = os.environ.get("OMARCHY_DRIVE_SOCKET", f"{os.environ.get('XDG_RUNTIME_DIR', '/tmp')}/omarchy-drive.sock")
+MOUNT_PATH = Path(os.environ.get("OMARCHY_DRIVE_MOUNT", str(Path.home() / "Proton Drive"))).expanduser()
 
 def rpc(method_name: str, **params):
     request=(json.dumps({"id":1,"method":method_name,"params":params})+"\n").encode()
@@ -43,7 +44,7 @@ class OmarchyDriveInterface(ServiceInterface):
     async def GetTransfers(self) -> 's': return await self._json("GetTransfers")
     @method()
     def OpenDrive(self) -> 'b':
-        subprocess.Popen(["nautilus", str(Path.home()/"Proton Drive")], start_new_session=True); return True
+        subprocess.Popen(["nautilus", str(MOUNT_PATH)], start_new_session=True); return True
 
     @signal()
     def ConnectionChanged(self, connected: 'b') -> 'b': return connected

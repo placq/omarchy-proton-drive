@@ -40,19 +40,26 @@ class Operations(pyfuse3.Operations):
         if not node: raise pyfuse3.FUSEError(errno.ENOENT)
         return self.attrs(node, inode)
     async def lookup(self, parent_inode, name, ctx=None):
-        parent = self.inode_to_node[parent_inode]; wanted = os.fsdecode(name)
+        parent = self.inode_to_node.get(parent_inode)
+        if not parent: raise pyfuse3.FUSEError(errno.ENOENT)
+        wanted = os.fsdecode(name)
         for node in await self.call("ListChildren", nodeId=parent["id"]):
             if node["name"] == wanted: self.inode_to_node[self.inode(node)] = node; return self.attrs(node)
         raise pyfuse3.FUSEError(errno.ENOENT)
-    async def opendir(self, inode, ctx): return inode
+    async def opendir(self, inode, ctx):
+        if inode not in self.inode_to_node: raise pyfuse3.FUSEError(errno.ENOENT)
+        return inode
     async def readdir(self, inode, off, token):
-        parent = self.inode_to_node[inode]; nodes = await self.call("ListChildren", nodeId=parent["id"])
+        parent = self.inode_to_node.get(inode)
+        if not parent: raise pyfuse3.FUSEError(errno.ENOENT)
+        nodes = await self.call("ListChildren", nodeId=parent["id"])
         for index, node in enumerate(nodes, 1):
             if index <= off: continue
             self.inode_to_node[self.inode(node)] = node
             if not pyfuse3.readdir_reply(token, os.fsencode(node["name"]), self.attrs(node), index): break
     async def open(self, inode, flags, ctx):
-        node = self.inode_to_node[inode]
+        node = self.inode_to_node.get(inode)
+        if not node: raise pyfuse3.FUSEError(errno.ENOENT)
         dirty = bool(flags & (os.O_WRONLY|os.O_RDWR|os.O_TRUNC|os.O_APPEND))
         if dirty and node["id"] in self.writers: raise pyfuse3.FUSEError(errno.EBUSY)
         if dirty: self.writers.add(node["id"])
@@ -69,21 +76,35 @@ class Operations(pyfuse3.Operations):
             raise
         fh = self.next_handle; self.next_handle += 1
         self.handles[fh] = (fd, node["id"], dirty); return pyfuse3.FileInfo(fh=fh)
-    async def read(self, fh, off, size): return os.pread(self.handles[fh][0], size, off)
-    async def write(self, fh, off, buf): return os.pwrite(self.handles[fh][0], buf, off)
-    async def fsync(self, fh, datasync): os.fsync(self.handles[fh][0])
+    async def read(self, fh, off, size):
+        if fh not in self.handles: raise pyfuse3.FUSEError(errno.EBADF)
+        return os.pread(self.handles[fh][0], size, off)
+    async def write(self, fh, off, buf):
+        if fh not in self.handles: raise pyfuse3.FUSEError(errno.EBADF)
+        return os.pwrite(self.handles[fh][0], buf, off)
+    async def fsync(self, fh, datasync):
+        if fh not in self.handles: raise pyfuse3.FUSEError(errno.EBADF)
+        os.fsync(self.handles[fh][0])
     async def release(self, fh):
-        fd, node_id, dirty = self.handles.pop(fh)
+        handle = self.handles.pop(fh, None)
+        if not handle: raise pyfuse3.FUSEError(errno.EBADF)
+        fd, node_id, dirty = handle
         try:
             if dirty: os.fsync(fd)
         finally:
             os.close(fd)
             if dirty: self.writers.discard(node_id)
-        if dirty: await self.call("CommitWrite", nodeId=node_id)
+        if dirty:
+            try: await self.call("CommitWrite", nodeId=node_id)
+            except RuntimeError as exc: raise pyfuse3.FUSEError(errno.EIO) from exc
     async def mkdir(self, parent_inode, name, mode, ctx):
-        parent=self.inode_to_node[parent_inode]; node=await self.call("CreateFolder", parentId=parent["id"], name=os.fsdecode(name)); return self.attrs(node)
+        parent=self.inode_to_node.get(parent_inode)
+        if not parent: raise pyfuse3.FUSEError(errno.ENOENT)
+        node=await self.call("CreateFolder", parentId=parent["id"], name=os.fsdecode(name)); return self.attrs(node)
     async def create(self, parent_inode, name, mode, flags, ctx):
-        parent=self.inode_to_node[parent_inode]; node=await self.call("CreateFile", parentId=parent["id"], name=os.fsdecode(name)); inode=self.inode(node)
+        parent=self.inode_to_node.get(parent_inode)
+        if not parent: raise pyfuse3.FUSEError(errno.ENOENT)
+        node=await self.call("CreateFile", parentId=parent["id"], name=os.fsdecode(name)); inode=self.inode(node)
         info=await self.open(inode, flags, ctx); return info, self.attrs(node, inode)
     async def unlink(self, parent_inode, name, ctx):
         entry=await self.lookup(parent_inode, name, ctx); await self.call("Trash", nodeId=self.inode_to_node[entry.st_ino]["id"])
@@ -92,10 +113,23 @@ class Operations(pyfuse3.Operations):
         entry=await self.lookup(parent_inode_old, name_old, ctx); node=self.inode_to_node[entry.st_ino]; new_parent=self.inode_to_node[parent_inode_new]
         if node["parentId"] != new_parent["id"]: node=await self.call("Move", nodeId=node["id"], parentId=new_parent["id"])
         if node["name"] != os.fsdecode(name_new): await self.call("Rename", nodeId=node["id"], name=os.fsdecode(name_new))
+
+    async def setattr(self, inode, attr, fields, fh, ctx):
+        # Truncate locally; remote commit still occurs only after close.
+        node = self.inode_to_node.get(inode)
+        if not node: raise pyfuse3.FUSEError(errno.ENOENT)
+        if getattr(fields, "update_size", False):
+            if fh is None or fh not in self.handles: raise pyfuse3.FUSEError(errno.EBADF)
+            os.ftruncate(self.handles[fh][0], attr.st_size)
+        return self.attrs(node, inode)
     async def getxattr(self, inode, name, ctx):
-        if os.fsdecode(name) == "user.omarchy-drive.node-id": return self.inode_to_node[inode]["id"].encode()
+        node = self.inode_to_node.get(inode)
+        if not node: raise pyfuse3.FUSEError(errno.ENOENT)
+        if os.fsdecode(name) == "user.omarchy-drive.node-id": return node["id"].encode()
         raise pyfuse3.FUSEError(errno.ENODATA)
-    async def listxattr(self, inode, ctx): return b"user.omarchy-drive.node-id\x00"
+    async def listxattr(self, inode, ctx):
+        if inode not in self.inode_to_node: raise pyfuse3.FUSEError(errno.ENOENT)
+        return b"user.omarchy-drive.node-id\x00"
 
 async def main():
     parser=argparse.ArgumentParser(); parser.add_argument("mountpoint"); parser.add_argument("--socket", required=True); args=parser.parse_args()

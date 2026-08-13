@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 fake=false
-if [[ ${1:-} == --fake ]]; then fake=true; fi
+if [[ ${1:-} == --fake ]]; then fake=true; elif [[ ${1:-} != "" ]]; then printf 'Usage: %s [--fake]\n' "$0" >&2; exit 2; fi
 if ! command -v omarchy >/dev/null; then printf 'This product installer requires Omarchy Quattro.\n' >&2; exit 1; fi
 if ! command -v makepkg >/dev/null; then printf 'makepkg is required.\n' >&2; exit 1; fi
 printf 'Install Omarchy Drive integration?\n\n• background service\n• FUSE filesystem integration\n• Nautilus integration\n\n'
@@ -18,7 +18,7 @@ bookmark_file="${XDG_CONFIG_HOME:-$HOME/.config}/gtk-3.0/bookmarks"; mkdir -p "$
 bookmark_uri="file://${mount_dir// /%20} Proton Drive"
 grep -Fqx "$bookmark_uri" "$bookmark_file" || printf '%s\n' "$bookmark_uri" >> "$bookmark_file"
 if $fake; then
-  env_dir="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy-drive"; mkdir -p "$env_dir"; printf 'OMARCHY_DRIVE_PROVIDER=fake\n' > "$env_dir/environment"
+  env_dir="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy-drive"; mkdir -p "$env_dir"; umask 077; printf 'OMARCHY_DRIVE_PROVIDER=fake\n' > "$env_dir/environment"
   systemctl --user daemon-reload; systemctl --user enable --now omarchy-drive.service omarchy-drive-dbus.service omarchy-drive-mount.service
 else
   printf '\nNative integration installed but not started. Real Proton authentication is blocked in this alpha; no fake data was enabled.\n'

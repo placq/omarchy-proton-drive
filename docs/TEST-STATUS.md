@@ -13,8 +13,9 @@ Verified 2026-08-13. “Automated” means the fake provider/core suite passes i
 | Pin/free space/cache | pin refresh, unpin/evict, unsafe eviction, LRU | Automated |
 | Concurrency | single-flight download, queued-edit reopen, background commit | Automated |
 | Proton SDK adapter | streamed download/upload and event cursor mapping | Automated with SDK-shaped test client |
-| RPC | version/status/core dispatch | Automated in process; socket bind blocked by build sandbox |
+| RPC | version/status/core dispatch, real daemon socket, browse/materialize, staged write/commit, restart recovery, Watch transfer events | Automated |
 | D-Bus/FUSE/Nautilus Python | syntax compilation | Automated; runtime pending Omarchy |
+| FUSE runtime | real daemon + pyfuse3 mount, browse/open/write/move/delete | Skipped when pyfuse3/trio or mount capability is unavailable |
 | Shell tooling | syntax validation | Automated |
 | Dependency security | production `npm audit` | Automated, 0 known vulnerabilities |
 | Real Proton auth/session | upstream integration gate documented | Blocked by unpublished account package |
