@@ -6,7 +6,32 @@ Omarchy Drive is an experimental, unofficial third-party integration for Proton 
 
 ## Normal user
 
-The intended product flow is: install from Omarchy Plugins, select **Install integration**, connect the Proton account in a browser, then open **Files → Proton Drive**. That final flow is not released yet. Do not install this alpha expecting access to a real Proton Drive account.
+The intended product flow is deliberately centered on one Omarchy bar widget. After installation, the bar shows:
+
+```text
+Proton Drive: ☁?
+```
+
+Clicking the widget opens the Proton Drive status card. There is no separate Omarchy menu entry, application-launcher entry or extra keyboard shortcut for routine access.
+
+The planned first-run flow is:
+
+1. Install the plugin and native integration.
+2. Click `Proton Drive: ☁?` on the bar.
+3. Choose `Connect account`.
+4. Complete Proton authentication in the browser.
+5. Return to the bar and see `Proton Drive: ☁`.
+
+The widget uses these status indicators:
+
+| Bar indicator | Meaning |
+|---|---|
+| `Proton Drive: ☁?` | Account is not configured |
+| `Proton Drive: ☁!` | Sign-in or integration requires attention |
+| `Proton Drive: ☁` | Connected and ready |
+| `Proton Drive: ☁↑` | Transfer or synchronization is active |
+
+The status card can open the Proton Drive root in Nautilus once the account is connected. The final browser-authentication flow is not released yet. Do not install this alpha expecting access to a real Proton Drive account.
 
 ## Developer preview
 
@@ -42,6 +67,7 @@ See [architecture](docs/ARCHITECTURE.md), [development roadmap](docs/ROADMAP.md)
 - FUSE3 adapter for browse/open/create/write/mkdir/rename/move/trash;
 - Nautilus context actions and status emblems;
 - Quattro `service` + `bar-widget` plugin manifest and event stream;
+- persistent `Proton Drive: <status icon>` bar widget as the sole Omarchy entry point;
 - systemd user services, Arch packaging, safe install/uninstall and diagnostics.
 
 ## Data safety
