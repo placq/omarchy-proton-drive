@@ -49,6 +49,7 @@ export class FakeDriveProvider implements DriveProvider {
     this.emit("updated", item.node);
     return structuredClone(item.node);
   }
+  emitTreeRemoval(): void { this.events.push({ id: "none", type: "refresh", nodeId: "root" }); }
   async getRoot(): Promise<DriveNode> { this.assertOnline(); return structuredClone(this.entry("root").node); }
   async getNode(nodeId: string): Promise<DriveNode> { this.assertOnline(); return structuredClone(this.entry(nodeId).node); }
   async listChildren(parentId: string): Promise<DriveNode[]> {

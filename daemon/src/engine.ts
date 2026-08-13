@@ -92,6 +92,7 @@ export class DriveEngine extends EventEmitter {
   async evict(nodeId: string): Promise<NodeState> {
     const node = await this.getNode(nodeId); const state = this.stateFor(node);
     if (UNSAFE_EVICTION.has(state.status)) throw new UnsafeEvictionError(state.status);
+    if (state.stagingPath && await this.storage.exists(state.stagingPath)) throw new UnsafeEvictionError(state.status);
     await this.storage.remove(state.cachePath); state.cachePath = undefined; state.pinned = false; state.status = "cloud-only"; state.lastAccessedAt = Date.now();
     this.store.setState(state); await this.store.save(); this.emit("nodeChanged", nodeId); return state;
   }
@@ -101,7 +102,7 @@ export class DriveEngine extends EventEmitter {
     this.store.setState(state); await this.store.save(); this.emit("nodeChanged", nodeId); return state;
   }
   async stageFile(nodeId: string, localPath: string): Promise<NodeState> {
-    const node = await this.getNode(nodeId); const state = this.stateFor(node);
+    const node = await this.getNode(nodeId); if (node.kind !== "file") throw new Error("Cannot write a folder"); const state = this.stateFor(node);
     state.stagingPath = await this.storage.stageFrom(localPath, nodeId); state.baseRevision = state.remoteRevision || node.revision; state.status = "dirty"; state.error = undefined;
     this.store.setState(state); await this.store.save(); this.emit("nodeChanged", nodeId); return state;
   }
@@ -168,7 +169,11 @@ export class DriveEngine extends EventEmitter {
         for (const node of await this.provider.listChildren(root.id)) this.store.setNode(node);
       } else if (event.type === "trashed") this.store.deleteNode(event.nodeId);
       else if (event.node) { const previous = this.store.getState(event.nodeId); this.store.setNode(event.node); if (previous) { if (previous.pinned && previous.remoteRevision !== event.node.revision && !["dirty", "queued", "uploading", "conflict"].includes(previous.status)) { await this.storage.remove(previous.cachePath); previous.cachePath = undefined; previous.status = "cloud-only"; } previous.remoteRevision = event.node.revision; this.store.setState(previous); } }
-      this.store.setLastEventId(event.id); await this.store.save(); this.emit("nodeChanged", event.nodeId);
+      // Proton emits `tree_remove` with eventId="none". It is a refresh
+      // marker, not a resumable cursor; persisting it would make the next
+      // event request restart from an invalid cursor.
+      if (event.id !== "none") this.store.setLastEventId(event.id);
+      await this.store.save(); this.emit("nodeChanged", event.nodeId);
       const state = this.store.getState(event.nodeId); if (state?.pinned && state.status === "cloud-only") await this.pin(event.nodeId, true);
     }
   }

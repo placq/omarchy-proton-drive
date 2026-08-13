@@ -5,6 +5,21 @@ import type { DriveEngine } from "./engine.ts";
 
 interface Request { id: string | number; method: string; params?: Record<string, unknown>; }
 
+const SAFE_ID = /^[A-Za-z0-9._-]+$/;
+const MAX_NAME_LENGTH = 255;
+
+function requiredId(value: unknown, field: string): string {
+  if (typeof value !== "string" || !SAFE_ID.test(value)) throw new Error(`Invalid ${field}`);
+  return value;
+}
+
+function requiredName(value: unknown): string {
+  if (typeof value !== "string" || value.length === 0 || value.length > MAX_NAME_LENGTH || value.includes("\0") || value === "." || value === ".." || value.includes("/")) {
+    throw new Error("Invalid node name");
+  }
+  return value;
+}
+
 export class RpcServer {
   constructor(readonly engine: DriveEngine, readonly socketPath: string) {}
   async listen(): Promise<void> {
@@ -39,7 +54,7 @@ export class RpcServer {
     catch (e) { socket.end(JSON.stringify({ id: request.id, error: { code: e instanceof Error ? e.name : "ERROR", message: e instanceof Error ? e.message : String(e) } }) + "\n"); }
   }
   private async dispatch(method: string, p: Record<string, unknown>): Promise<unknown> {
-    const id = () => String(p.nodeId);
+    const id = () => requiredId(p.nodeId, "nodeId");
     switch (method) {
       case "GetVersion": return { version: "0.1.0-alpha.1", apiVersion: 1, provider: this.engine.provider.kind };
       case "GetStatus": return { connected: ["proton-sdk", "fake"].includes(this.engine.provider.kind), authenticated: this.engine.provider.kind === "proton-sdk", provider: this.engine.provider.kind, transfers: this.engine.transfers.list(true) };
@@ -53,10 +68,10 @@ export class RpcServer {
       case "SetPinned": return this.engine.pin(id(), Boolean(p.pinned));
       case "Evict": return this.engine.evict(id());
       case "Retry": return this.engine.queueCommit(id());
-      case "CreateFolder": return this.engine.createFolder(String(p.parentId), String(p.name));
-      case "CreateFile": return this.engine.createFile(String(p.parentId), String(p.name), new Uint8Array());
-      case "Rename": return this.engine.rename(id(), String(p.name));
-      case "Move": return this.engine.move(id(), String(p.parentId));
+      case "CreateFolder": return this.engine.createFolder(requiredId(p.parentId, "parentId"), requiredName(p.name));
+      case "CreateFile": return this.engine.createFile(requiredId(p.parentId, "parentId"), requiredName(p.name), new Uint8Array());
+      case "Rename": return this.engine.rename(id(), requiredName(p.name));
+      case "Move": return this.engine.move(id(), requiredId(p.parentId, "parentId"));
       case "Trash": await this.engine.trash(id()); return null;
       case "GetTransfers": return this.engine.transfers.list();
       case "Sync": await this.engine.syncQueued(); await this.engine.processEvents(); return null;

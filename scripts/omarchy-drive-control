@@ -35,7 +35,7 @@ def main():
     elif a.command == "retry": result=call("Retry", nodeId=a.node_id)
     elif a.command == "node-status": result=call("GetNodeStatus", nodeId=a.node_id)
     elif a.command == "open":
-        mount=a.path or str(Path.home()/"Proton Drive"); subprocess.Popen(["nautilus", mount], start_new_session=True); result={"opened":mount}
+        mount=a.path or os.environ.get("OMARCHY_DRIVE_MOUNT", str(Path.home()/"Proton Drive")); subprocess.Popen(["nautilus", mount], start_new_session=True); result={"opened":mount}
     print(json.dumps(result, ensure_ascii=False))
 if __name__ == "__main__":
     try: main()

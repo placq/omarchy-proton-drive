@@ -8,6 +8,7 @@ This is an unofficial developer alpha. Do not test it with important Proton Driv
 npm ci --ignore-scripts
 npm test
 npm run check
+./scripts/validate-local.sh
 python3 -m py_compile filesystem/fuse/omarchy-drive-fuse.py ipc/dbus/omarchy_drive_dbus.py nautilus/extension/omarchy_drive.py
 bash -n scripts/*.sh scripts/omarchy-drive-control
 ```

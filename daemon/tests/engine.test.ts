@@ -82,6 +82,14 @@ test("pinned file refreshes from Drive events", async () => {
   const state=engine.getState("welcome"); assert.equal(state?.status, "pinned"); assert.equal(new TextDecoder().decode(await engine.storage.read(state!.cachePath!)), "fresh remote");
 });
 
+test("tree removal refresh marker never becomes the persisted event cursor", async () => {
+  const { provider, engine } = await fixture();
+  provider.remoteEdit("welcome", new TextEncoder().encode("refresh me"));
+  provider.emitTreeRemoval();
+  await engine.processEvents();
+  assert.equal(engine.store.getLastEventId(), "1");
+});
+
 test("unicode, zero byte, mkdir, rename, move and trash use native provider operations", async () => {
   const { engine } = await fixture(); const folder=await engine.createFolder("root", "Zażółć 🛰️");
   const file=await engine.createFile("root", "zero byte.txt", new Uint8Array()); assert.equal(file.size, 0);
@@ -96,6 +104,14 @@ test("RPC dispatcher exposes versioned status and core actions", async () => {
   const version=await dispatch("GetVersion", {}) as {apiVersion:number}; assert.equal(version.apiVersion, 1);
   const root=await dispatch("GetRoot", {}) as {id:string}; assert.equal(root.id, "root");
   const children=await dispatch("ListChildren", {nodeId:"docs"}) as unknown[]; assert.equal(children.length, 1);
+});
+
+test("RPC rejects path-like identifiers and unsafe names", async () => {
+  const { engine } = await fixture(); const rpc = new RpcServer(engine, "/unused");
+  const dispatch = (rpc as unknown as { dispatch(method: string, params: Record<string, unknown>): Promise<unknown> }).dispatch.bind(rpc);
+  await assert.rejects(dispatch("GetNode", { nodeId: "../state" }), /Invalid nodeId/);
+  await assert.rejects(dispatch("Rename", { nodeId: "welcome", name: "../state" }), /Invalid node name/);
+  await assert.rejects(dispatch("CreateFolder", { parentId: "root", name: "" }), /Invalid node name/);
 });
 
 test("daemon restart recovers interrupted upload from persistent staging", async () => {
