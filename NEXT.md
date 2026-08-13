@@ -1,12 +1,11 @@
 # Next milestone
 
-The project is at the fake-provider desktop MVP, not the real-account MVP.
+The next milestone is a complete fake-provider system test on a disposable Omarchy Quattro installation. Real Proton login remains disabled until the desktop stack is proven and the authentication decision gate is passed.
 
-1. Integrate a Proton-published, reusable browser-auth/session bootstrap or an officially documented equivalent. Store the resulting session only through Bun secrets/libsecret; follow `docs/AUTH-INTEGRATION.md`.
-2. Build `ProtonDriveClient` with Proton HTTP, crypto, account, cache, SRP and event dependencies using that authenticated session.
-3. Add the SDK event scheduler around the implemented event cursor adapter and extend refresh handling to all owned volumes.
-4. Migrate metadata/event/transfer persistence to SQLite; the session D-Bus bridge is implemented and awaits Quattro validation.
-5. Run the real-account integration suite in `/OmarchyDriveIntegrationTests/`.
-6. Test the FUSE adapter, Nautilus 50.2.2 extension and Quattro QML on a fresh physical/VM Omarchy Quattro installation.
-7. Replace the local-development `PKGBUILD` source layout with a signed release tarball after the repository namespace is final.
-8. Publish a stable release only after the installation acceptance test in `docs/INSTALLATION-TEST.md` passes without developer commands.
+1. Run `./scripts/dev-setup.sh`, `./scripts/install.sh --fake` and `./scripts/doctor.sh` on fresh Quattro.
+2. Verify boot recovery, FUSE mount, Nautilus sidebar/actions/emblems and the `placq.proton-drive` Quattro menu.
+3. Exercise browse, open, create, edit, move, trash, pin, eviction, offline retry, conflict and unsafe-uninstall scenarios.
+4. Record results in `docs/TEST-STATUS.md` and fix every data-safety or startup blocker.
+5. Continue with storage hardening and the Proton authentication decision gate described in `docs/ROADMAP.md`.
+
+See [the full development roadmap](docs/ROADMAP.md) for release phases and exit criteria.
