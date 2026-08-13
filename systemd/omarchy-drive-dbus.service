@@ -1,0 +1,18 @@
+[Unit]
+Description=Omarchy Drive session D-Bus bridge
+After=omarchy-drive.service
+Requires=omarchy-drive.service
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/lib/omarchy-drive/ipc/dbus/omarchy_drive_dbus.py
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+
+[Install]
+WantedBy=default.target

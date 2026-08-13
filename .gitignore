@@ -1,0 +1,11 @@
+node_modules/
+__pycache__/
+*.pyc
+.cache/
+.runtime/
+.run-cache/
+.run-state/
+upload/
+pkg/
+src/
+*.pkg.tar.*
