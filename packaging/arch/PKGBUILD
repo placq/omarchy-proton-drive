@@ -1,0 +1,31 @@
+pkgname=omarchy-drive
+pkgver=0.1.0_alpha1
+pkgrel=1
+pkgdesc="Unofficial Proton Drive desktop integration for Omarchy Quattro"
+arch=('any')
+url="https://github.com/omarchy-drive/omarchy-drive"
+license=('MIT')
+depends=('bun' 'fuse3' 'nautilus' 'nautilus-python' 'python-dbus-next' 'python-pyfuse3' 'python-trio')
+makedepends=('npm')
+options=('!strip')
+source=()
+sha256sums=()
+
+build() {
+  cd "$startdir/../.."
+  npm ci --omit=dev --ignore-scripts
+}
+
+package() {
+  local src="$startdir/../.."
+  install -d "$pkgdir/usr/lib/omarchy-drive" "$pkgdir/usr/bin"
+  cp -a "$src/daemon" "$src/filesystem" "$src/ipc" "$src/node_modules" "$src/package.json" "$pkgdir/usr/lib/omarchy-drive/"
+  install -Dm755 "$src/scripts/omarchy-drive-control" "$pkgdir/usr/bin/omarchy-drive-control"
+  install -Dm644 "$src/nautilus/extension/omarchy_drive.py" "$pkgdir/usr/share/nautilus-python/extensions/omarchy_drive.py"
+  install -Dm644 "$src/systemd/omarchy-drive.service" "$pkgdir/usr/lib/systemd/user/omarchy-drive.service"
+  install -Dm644 "$src/systemd/omarchy-drive-mount.service" "$pkgdir/usr/lib/systemd/user/omarchy-drive-mount.service"
+  install -Dm644 "$src/systemd/omarchy-drive-dbus.service" "$pkgdir/usr/lib/systemd/user/omarchy-drive-dbus.service"
+  install -Dm644 "$src/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  chmod 755 "$pkgdir/usr/lib/omarchy-drive/filesystem/fuse/omarchy-drive-fuse.py"
+  chmod 755 "$pkgdir/usr/lib/omarchy-drive/ipc/dbus/omarchy_drive_dbus.py"
+}

@@ -1,0 +1,20 @@
+[Unit]
+Description=Omarchy Drive background service
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+EnvironmentFile=-%E/omarchy-drive/environment
+ExecStart=/usr/bin/bun /usr/lib/omarchy-drive/daemon/src/main.ts
+Restart=on-failure
+RestartPreventExitStatus=78
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.cache/omarchy-drive %h/.local/state/omarchy-drive %t
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.omarchy-drive",
+  "name": "Omarchy Drive",
+  "version": "0.1.0-alpha.1",
+  "author": "Omarchy Drive contributors",
+  "description": "Unofficial Proton Drive integration for Omarchy Files",
+  "kinds": ["service", "menu"],
+  "entryPoints": {
+    "service": "omarchy/Service.qml",
+    "menu": "omarchy/Menu.qml"
+  },
+  "keepLoaded": true
+}

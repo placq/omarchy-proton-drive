@@ -1,0 +1,19 @@
+{
+  "name": "omarchy-drive",
+  "version": "0.1.0-alpha.1",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22", "bun": ">=1.2" },
+  "scripts": {
+    "test": "node --experimental-transform-types --test daemon/tests/*.test.ts",
+    "check": "tsc --noEmit",
+    "start:fake": "OMARCHY_DRIVE_PROVIDER=fake node --experimental-transform-types daemon/src/main.ts"
+  },
+  "dependencies": {
+    "@protontech/drive-sdk": "0.21.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.3.0",
+    "typescript": "5.9.2"
+  }
+}

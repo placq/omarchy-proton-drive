@@ -1,0 +1,42 @@
+#!/usr/bin/env python3
+import argparse, json, os, socket, subprocess, sys
+from pathlib import Path
+
+SOCKET = os.environ.get("OMARCHY_DRIVE_SOCKET", f"{os.environ.get('XDG_RUNTIME_DIR', '/tmp')}/omarchy-drive.sock")
+
+def call(method, **params):
+    req=(json.dumps({"id":1,"method":method,"params":params})+"\n").encode()
+    with socket.socket(socket.AF_UNIX) as conn:
+        conn.settimeout(5); conn.connect(SOCKET); conn.sendall(req); data=b""
+        while b"\n" not in data: data += conn.recv(65536)
+    response=json.loads(data.split(b"\n",1)[0])
+    if "error" in response: raise RuntimeError(response["error"]["message"])
+    return response["result"]
+
+def main():
+    p=argparse.ArgumentParser(); sub=p.add_subparsers(dest="command", required=True)
+    sub.add_parser("status"); sub.add_parser("transfers"); sub.add_parser("sync"); sub.add_parser("watch")
+    open_p=sub.add_parser("open"); open_p.add_argument("path", nargs="?")
+    for name in ["pin","unpin","evict","retry","node-status"]:
+        q=sub.add_parser(name); q.add_argument("node_id")
+    a=p.parse_args()
+    if a.command == "watch":
+        req=(json.dumps({"id":1,"method":"Watch","params":{}})+"\n").encode()
+        with socket.socket(socket.AF_UNIX) as conn:
+            conn.connect(SOCKET); conn.sendall(req); stream=conn.makefile("r")
+            for line in stream: print(line, end="", flush=True)
+        return
+    if a.command == "status": result=call("GetStatus")
+    elif a.command == "transfers": result=call("GetTransfers")
+    elif a.command == "sync": result=call("Sync")
+    elif a.command == "pin": result=call("SetPinned", nodeId=a.node_id, pinned=True)
+    elif a.command == "unpin": result=call("SetPinned", nodeId=a.node_id, pinned=False)
+    elif a.command == "evict": result=call("Evict", nodeId=a.node_id)
+    elif a.command == "retry": result=call("Retry", nodeId=a.node_id)
+    elif a.command == "node-status": result=call("GetNodeStatus", nodeId=a.node_id)
+    elif a.command == "open":
+        mount=a.path or str(Path.home()/"Proton Drive"); subprocess.Popen(["nautilus", mount], start_new_session=True); result={"opened":mount}
+    print(json.dumps(result, ensure_ascii=False))
+if __name__ == "__main__":
+    try: main()
+    except (OSError, RuntimeError) as exc: print(json.dumps({"error":str(exc)}), file=sys.stderr); raise SystemExit(1)
