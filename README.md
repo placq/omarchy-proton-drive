@@ -28,7 +28,7 @@ npm run check
 OMARCHY_DRIVE_PROVIDER=fake npm run start:fake
 ```
 
-See [architecture](docs/ARCHITECTURE.md), [security model](docs/SECURITY.md), [test status](docs/TEST-STATUS.md), [dependencies](docs/DEPENDENCIES.md), and [next work](NEXT.md).
+See [architecture](docs/ARCHITECTURE.md), [development roadmap](docs/ROADMAP.md), [security model](docs/SECURITY.md), [test status](docs/TEST-STATUS.md), [dependencies](docs/DEPENDENCIES.md), and [next work](NEXT.md).
 
 ## What the alpha implements
 
