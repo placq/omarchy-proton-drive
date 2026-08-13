@@ -9,8 +9,11 @@ const manifest = JSON.parse(fs.readFileSync('manifest.json', 'utf8'));
 for (const field of ['schemaVersion', 'id', 'name', 'version', 'kinds', 'entryPoints']) {
   if (!(field in manifest)) throw new Error(`manifest missing ${field}`);
 }
-if (manifest.schemaVersion !== 1 || !Array.isArray(manifest.kinds) || !manifest.kinds.includes('service') || !manifest.kinds.includes('menu')) {
+if (manifest.schemaVersion !== 1 || !Array.isArray(manifest.kinds) || !manifest.kinds.includes('service') || !manifest.kinds.includes('bar-widget')) {
   throw new Error('manifest does not satisfy the Quattro plugin contract');
+}
+if (typeof manifest.entryPoints.service !== 'string' || typeof manifest.entryPoints.barWidget !== 'string') {
+  throw new Error('manifest is missing service or barWidget entry point');
 }
 for (const entry of Object.values(manifest.entryPoints)) {
   if (typeof entry !== 'string' || entry.startsWith('/') || entry.includes('..')) throw new Error(`unsafe entry point: ${entry}`);
@@ -30,10 +33,10 @@ if command -v systemd-analyze >/dev/null 2>&1; then
 fi
 
 printf 'Checking QML entry-point shape…\n'
-for file in omarchy/Service.qml omarchy/Menu.qml; do
+for file in omarchy/Service.qml; do
   grep -q '^Item[[:space:]]*{' "$file" || { printf 'Invalid QML root: %s\n' "$file" >&2; exit 1; }
 done
-grep -q 'function open' omarchy/Menu.qml || { printf 'Missing open() in menu\n' >&2; exit 1; }
-grep -q 'function close' omarchy/Menu.qml || { printf 'Missing close() in menu\n' >&2; exit 1; }
+grep -q '^BarWidget[[:space:]]*{' omarchy/BarWidget.qml || { printf 'Invalid bar-widget root\n' >&2; exit 1; }
+grep -q 'moduleName: "placq.proton-drive"' omarchy/BarWidget.qml || { printf 'Missing widget module name\n' >&2; exit 1; }
 
 printf 'Local validation passed.\n'

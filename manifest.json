@@ -5,10 +5,17 @@
   "version": "0.1.0-alpha.1",
   "author": "placq",
   "description": "Unofficial Proton Drive integration for Omarchy Files",
-  "kinds": ["service", "menu"],
+  "kinds": ["service", "bar-widget"],
   "entryPoints": {
     "service": "omarchy/Service.qml",
-    "menu": "omarchy/Menu.qml"
+    "barWidget": "omarchy/BarWidget.qml"
   },
-  "keepLoaded": true
+  "barWidget": {
+    "displayName": "Proton Drive",
+    "description": "Proton Drive connection and transfer status",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "left"
+  },
+  "keepLoaded": false
 }

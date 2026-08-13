@@ -19,7 +19,7 @@ Item {
         stdout: SplitParser { onRead: data => {
             try {
                 const message=JSON.parse(data)
-                if (message.event === "Status") { root.connected=Boolean(message.data.connected); root.provider=message.data.provider || "unconfigured" }
+                if (message.event === "Status") { root.connected=Boolean(message.data.connected); root.provider=message.data.provider || "unconfigured"; root.lastError="" }
                 if (message.event === "TransferChanged") {
                     const next=root.transfers.filter(item => item.id !== message.data.id)
                     if (!["complete", "cancelled"].includes(message.data.state)) next.push(message.data)
