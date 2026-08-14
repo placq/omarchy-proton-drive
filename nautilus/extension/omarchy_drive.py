@@ -4,7 +4,7 @@ from pathlib import Path
 from gi.repository import GObject, Nautilus
 from drive_logic import drive_path, node_id
 
-MOUNT = Path(os.environ.get("OMARCHY_DRIVE_MOUNT", str(Path.home()/"Proton Drive"))).resolve()
+MOUNT = Path(os.environ.get("OMARCHY_DRIVE_MOUNT", str(Path.home()/".local/share/omarchy-drive/mount"))).resolve()
 SOCKET = os.environ.get("OMARCHY_DRIVE_SOCKET", f"{os.environ.get('XDG_RUNTIME_DIR', '/tmp')}/omarchy-drive.sock")
 EMBLEMS = {"cloud-only":"emblem-synchronizing", "cached":"emblem-default", "pinned":"emblem-favorite", "downloading":"emblem-synchronizing", "uploading":"emblem-synchronizing", "dirty":"emblem-synchronizing", "queued":"emblem-synchronizing", "conflict":"emblem-important", "error":"emblem-important"}
 

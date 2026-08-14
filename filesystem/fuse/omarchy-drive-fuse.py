@@ -22,6 +22,7 @@ class Operations(pyfuse3.Operations):
     enable_writeback_cache = True
     def __init__(self, rpc: Rpc):
         super().__init__(); self.rpc = rpc; self.next_inode = pyfuse3.ROOT_INODE + 1
+        self.read_only = bool(self.rpc.call("GetStatus").get("readOnly", False))
         self.node_to_inode = {}; self.inode_to_node = {pyfuse3.ROOT_INODE: self.rpc.call("GetRoot")}
         self.handles = {}; self.writers = set(); self.next_handle = 1
     async def call(self, method, **params):
@@ -61,6 +62,7 @@ class Operations(pyfuse3.Operations):
         node = self.inode_to_node.get(inode)
         if not node: raise pyfuse3.FUSEError(errno.ENOENT)
         dirty = bool(flags & (os.O_WRONLY|os.O_RDWR|os.O_TRUNC|os.O_APPEND))
+        if dirty and self.read_only: raise pyfuse3.FUSEError(errno.EROFS)
         if dirty and node["id"] in self.writers: raise pyfuse3.FUSEError(errno.EBUSY)
         if dirty: self.writers.add(node["id"])
         try: local = (await self.call("BeginWrite" if dirty else "Materialize", nodeId=node["id"]))["path"]
@@ -98,18 +100,24 @@ class Operations(pyfuse3.Operations):
             try: await self.call("CommitWrite", nodeId=node_id)
             except RuntimeError as exc: raise pyfuse3.FUSEError(errno.EIO) from exc
     async def mkdir(self, parent_inode, name, mode, ctx):
+        if self.read_only: raise pyfuse3.FUSEError(errno.EROFS)
         parent=self.inode_to_node.get(parent_inode)
         if not parent: raise pyfuse3.FUSEError(errno.ENOENT)
         node=await self.call("CreateFolder", parentId=parent["id"], name=os.fsdecode(name)); return self.attrs(node)
     async def create(self, parent_inode, name, mode, flags, ctx):
+        if self.read_only: raise pyfuse3.FUSEError(errno.EROFS)
         parent=self.inode_to_node.get(parent_inode)
         if not parent: raise pyfuse3.FUSEError(errno.ENOENT)
         node=await self.call("CreateFile", parentId=parent["id"], name=os.fsdecode(name)); inode=self.inode(node)
         info=await self.open(inode, flags, ctx); return info, self.attrs(node, inode)
     async def unlink(self, parent_inode, name, ctx):
+        if self.read_only: raise pyfuse3.FUSEError(errno.EROFS)
         entry=await self.lookup(parent_inode, name, ctx); await self.call("Trash", nodeId=self.inode_to_node[entry.st_ino]["id"])
-    async def rmdir(self, parent_inode, name, ctx): await self.unlink(parent_inode, name, ctx)
+    async def rmdir(self, parent_inode, name, ctx):
+        if self.read_only: raise pyfuse3.FUSEError(errno.EROFS)
+        await self.unlink(parent_inode, name, ctx)
     async def rename(self, parent_inode_old, name_old, parent_inode_new, name_new, flags, ctx):
+        if self.read_only: raise pyfuse3.FUSEError(errno.EROFS)
         entry=await self.lookup(parent_inode_old, name_old, ctx); node=self.inode_to_node[entry.st_ino]; new_parent=self.inode_to_node[parent_inode_new]
         if node["parentId"] != new_parent["id"]: node=await self.call("Move", nodeId=node["id"], parentId=new_parent["id"])
         if node["name"] != os.fsdecode(name_new): await self.call("Rename", nodeId=node["id"], name=os.fsdecode(name_new))
@@ -133,7 +141,7 @@ class Operations(pyfuse3.Operations):
 
 async def main():
     parser=argparse.ArgumentParser(); parser.add_argument("mountpoint"); parser.add_argument("--socket", required=True); args=parser.parse_args()
-    Path(args.mountpoint).mkdir(parents=True, exist_ok=True); pyfuse3.init(Operations(Rpc(args.socket)), args.mountpoint, {"fsname=omarchy-drive", "subtype=omarchy-drive", "default_permissions"})
+    Path(args.mountpoint).mkdir(parents=True, exist_ok=True); pyfuse3.init(Operations(Rpc(args.socket)), args.mountpoint, {"fsname=omarchy-drive", "subtype=omarchy-drive", "default_permissions", "x-gvfs-hide"})
     try: await pyfuse3.main()
     finally: pyfuse3.close(unmount=True)
 if __name__ == "__main__": trio.run(main)

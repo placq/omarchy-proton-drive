@@ -88,7 +88,7 @@ test("FUSE filesystem supports browse, open, upload, rename, move and delete", {
   let fuse: ChildProcess | undefined;
 
   try {
-    daemon = spawn(process.execPath, ["--experimental-transform-types", "daemon/src/main.ts"], { cwd: process.cwd(), env, stdio: "ignore" });
+    daemon = spawn("./scripts/node-ts.sh", ["daemon/src/main.ts"], { cwd: process.cwd(), env, stdio: "ignore" });
     await waitForSocket(socketPath);
     fuse = spawn(python, [fuseScript, mount, "--socket", socketPath], { cwd: process.cwd(), env, stdio: "ignore" });
     await waitForMount(mount);

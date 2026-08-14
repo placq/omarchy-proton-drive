@@ -50,7 +50,7 @@ async function rpc(socketPath: string, method: string, params: Record<string, un
 }
 
 async function startDaemon(): Promise<void> {
-  daemon = spawn(process.execPath, ["--experimental-transform-types", "daemon/src/main.ts"], {
+  daemon = spawn("./scripts/node-ts.sh", ["daemon/src/main.ts"], {
     cwd: process.cwd(),
     env: { ...process.env, OMARCHY_DRIVE_PROVIDER: "fake", XDG_RUNTIME_DIR: runtime, XDG_STATE_HOME: state, XDG_CACHE_HOME: cache },
     stdio: "ignore"
@@ -62,12 +62,22 @@ async function stopDaemon(): Promise<void> {
   if (!daemon || daemon.exitCode !== null) return;
   const processToStop = daemon;
   processToStop.kill("SIGTERM");
-  await new Promise<void>(resolve => {
-    const timer = setTimeout(resolve, 2_000);
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("Daemon did not exit within 2 seconds of SIGTERM")), 2_000);
     processToStop.once("exit", () => { clearTimeout(timer); resolve(); });
   });
   daemon = undefined;
 }
+
+test("daemon exits promptly on SIGTERM", async () => {
+  await createWorkspace();
+  const watch = watchEvents();
+  await watch.ready;
+  await stopDaemon();
+  watch.close();
+  if (root) await rm(root, { recursive: true, force: true });
+  root = undefined;
+});
 
 async function createWorkspace(): Promise<void> {
   root = await mkdtemp(join(tmpdir(), "omarchy-drive-rpc-"));
@@ -106,7 +116,16 @@ test("daemon RPC smoke test uses the real process and private XDG state", async 
   await createWorkspace();
 
   const status = await rpc(socketPath, "GetStatus");
-  assert.deepEqual(status, { connected: true, authenticated: false, provider: "fake", transfers: [] });
+  assert.equal(status.connected, true);
+  assert.equal(status.authenticated, true);
+  assert.equal(status.readOnly, false);
+  assert.equal(status.provider, "fake");
+  assert.equal(status.account, null);
+  assert.equal(status.connectionError, "");
+  assert.equal(status.version, "0.2.0-alpha.1");
+  assert.equal(typeof status.checkedAt, "number");
+  assert.equal(typeof status.cacheBytes, "number");
+  assert.deepEqual(status.transfers, []);
 
   const rootNode = await rpc(socketPath, "GetRoot");
   assert.equal(rootNode.name, "Proton Drive");

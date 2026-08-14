@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Session D-Bus bridge for the Omarchy Drive daemon's private RPC socket."""
+"""Session D-Bus bridge for the Proton Drive for Omarchy daemon's private RPC socket."""
 from __future__ import annotations
 import asyncio, json, os, socket, subprocess
 from pathlib import Path
@@ -10,7 +10,7 @@ from dbus_next.service import ServiceInterface, method, signal
 BUS_NAME = "io.github.placq.OmarchyProtonDrive1"
 OBJECT_PATH = "/io/github/placq/OmarchyProtonDrive1"
 SOCKET_PATH = os.environ.get("OMARCHY_DRIVE_SOCKET", f"{os.environ.get('XDG_RUNTIME_DIR', '/tmp')}/omarchy-drive.sock")
-MOUNT_PATH = Path(os.environ.get("OMARCHY_DRIVE_MOUNT", str(Path.home() / "Proton Drive"))).expanduser()
+MOUNT_PATH = Path(os.environ.get("OMARCHY_DRIVE_MOUNT", str(Path.home() / ".local/share/omarchy-drive/mount"))).expanduser()
 
 def rpc(method_name: str, **params):
     request=(json.dumps({"id":1,"method":method_name,"params":params})+"\n").encode()
@@ -42,6 +42,8 @@ class OmarchyDriveInterface(ServiceInterface):
     async def Retry(self, node_id: 's') -> 's': return await self._json("Retry", nodeId=node_id)
     @method()
     async def GetTransfers(self) -> 's': return await self._json("GetTransfers")
+    @method()
+    async def ClearCache(self) -> 's': return await self._json("ClearCache")
     @method()
     def OpenDrive(self) -> 'b':
         subprocess.Popen(["nautilus", str(MOUNT_PATH)], start_new_session=True); return True

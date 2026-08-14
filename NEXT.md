@@ -1,11 +1,11 @@
 # Next milestone
 
-The next milestone is a complete fake-provider system test on a disposable Omarchy Quattro installation. Real Proton login remains disabled until the desktop stack is proven and the authentication decision gate is passed.
+The next milestone after `0.2.0-alpha.1` is clean-machine acceptance of the read-only real-account preview. Real writes remain disabled until revision-aware conflict safety is available and proven.
 
-1. Run `./scripts/dev-setup.sh`, `./scripts/install.sh --fake` and `./scripts/doctor.sh` on fresh Quattro.
-2. Verify boot recovery, FUSE mount, Nautilus sidebar/actions/emblems and the `placq.proton-drive` Quattro menu.
-3. Exercise browse, open, create, edit, move, trash, pin, eviction, offline retry, conflict and unsafe-uninstall scenarios.
-4. Record results in `docs/TEST-STATUS.md` and fix every data-safety or startup blocker.
-5. Continue with storage hardening and the Proton authentication decision gate described in `docs/ROADMAP.md`.
+1. Reboot the development workstation and verify service, mount, session and panel recovery.
+2. Exercise login, logout, re-login, revoked session, offline and reconnect behavior on the dedicated test account.
+3. Install the release on a disposable clean Omarchy Quattro system and run `./scripts/doctor.sh`.
+4. Verify the single Nautilus bookmark, hidden technical mount, on-demand downloads and safe cache cleanup.
+5. Record results in `docs/INSTALLATION-TEST.md` and `docs/TEST-STATUS.md`, then continue storage hardening before real writes.
 
 See [the full development roadmap](docs/ROADMAP.md) for release phases and exit criteria.

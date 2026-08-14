@@ -7,7 +7,8 @@ interface Snapshot { version: 1; nodes: Record<string, DriveNode>; states: Recor
 export class StateStore {
   private snapshot: Snapshot = { version: 1, nodes: {}, states: {} };
   private saveChain: Promise<void> = Promise.resolve();
-  constructor(readonly path: string) {}
+  readonly path: string;
+  constructor(path: string) { this.path = path; }
   async load(): Promise<void> {
     await mkdir(dirname(this.path), { recursive: true, mode: 0o700 });
     await chmod(dirname(this.path), 0o700);

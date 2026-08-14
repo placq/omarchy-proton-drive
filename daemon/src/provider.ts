@@ -4,6 +4,13 @@ export interface DownloadResult {
   revision: string;
 }
 
+export interface AccountInfo {
+  email: string;
+  displayName?: string;
+  usedBytes: number;
+  totalBytes: number;
+}
+
 export interface UploadInput {
   parentId: string;
   nodeId?: string;
@@ -16,7 +23,8 @@ export interface UploadInput {
 }
 
 export interface DriveProvider {
-  readonly kind: "fake" | "proton-sdk";
+  readonly kind: "fake" | "proton-sdk" | "proton-cli";
+  getAccountInfo?(): Promise<AccountInfo | null>;
   getRoot(): Promise<DriveNode>;
   getNode(nodeId: string): Promise<DriveNode>;
   listChildren(parentId: string): Promise<DriveNode[]>;

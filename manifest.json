@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "id": "placq.proton-drive",
-  "name": "Omarchy Drive",
-  "version": "0.1.0-alpha.1",
+  "name": "Proton Drive for Omarchy",
+  "version": "0.2.0-alpha.1",
   "author": "placq",
   "description": "Unofficial Proton Drive integration for Omarchy Files",
   "kinds": ["service", "bar-widget"],
@@ -15,7 +15,7 @@
     "description": "Proton Drive connection and transfer status",
     "category": "System",
     "allowMultiple": false,
-    "defaultSection": "left"
+    "defaultSection": "right"
   },
   "keepLoaded": false
 }

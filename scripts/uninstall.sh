@@ -14,10 +14,10 @@ systemctl --user disable --now omarchy-drive-mount.service omarchy-drive-dbus.se
 plugin_dir="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/plugins/placq.proton-drive"
 omarchy plugin remove placq.proton-drive --yes 2>/dev/null || rm -rf -- "$plugin_dir"
 bookmark_file="${XDG_CONFIG_HOME:-$HOME/.config}/gtk-3.0/bookmarks"
-mount_dir="$HOME/Proton Drive"
+mount_dir="${XDG_DATA_HOME:-$HOME/.local/share}/omarchy-drive/mount"
 if [[ -f $bookmark_file ]]; then
   tmp_bookmarks="$(mktemp "${bookmark_file}.XXXXXX")"
-  awk -v uri="file://${mount_dir// /%20} Proton Drive" '$0 != uri' "$bookmark_file" > "$tmp_bookmarks"
+  awk -v uri="file://${mount_dir// /%20} Proton Drive" -v legacy="file://${HOME// /%20}/Proton%20Drive Proton Drive" '$0 != uri && $0 != legacy' "$bookmark_file" > "$tmp_bookmarks"
   chmod --reference="$bookmark_file" "$tmp_bookmarks" 2>/dev/null || true
   mv -- "$tmp_bookmarks" "$bookmark_file"
 fi

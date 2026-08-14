@@ -15,11 +15,18 @@ def call(method, **params):
 
 def main():
     p=argparse.ArgumentParser(); sub=p.add_subparsers(dest="command", required=True)
-    sub.add_parser("status"); sub.add_parser("transfers"); sub.add_parser("sync"); sub.add_parser("watch")
+    sub.add_parser("status"); sub.add_parser("transfers"); sub.add_parser("sync"); sub.add_parser("watch"); sub.add_parser("clear-cache")
+    sub.add_parser("login"); sub.add_parser("logout")
     open_p=sub.add_parser("open"); open_p.add_argument("path", nargs="?")
     for name in ["pin","unpin","evict","retry","node-status"]:
         q=sub.add_parser(name); q.add_argument("node_id")
     a=p.parse_args()
+    if a.command in {"login", "logout"}:
+        cli=os.environ.get("OMARCHY_DRIVE_CLI", str(Path.home()/".local/bin/proton-drive"))
+        if a.command == "logout": subprocess.run(["systemctl", "--user", "stop", "omarchy-drive-mount.service"], check=False)
+        subprocess.run([cli, "auth", a.command], check=True)
+        subprocess.run(["systemctl", "--user", "restart", "omarchy-drive.service", "omarchy-drive-dbus.service", "omarchy-drive-mount.service"], check=False)
+        print(json.dumps({"authenticated": a.command == "login"})); return
     if a.command == "watch":
         req=(json.dumps({"id":1,"method":"Watch","params":{}})+"\n").encode()
         with socket.socket(socket.AF_UNIX) as conn:
@@ -29,13 +36,14 @@ def main():
     if a.command == "status": result=call("GetStatus")
     elif a.command == "transfers": result=call("GetTransfers")
     elif a.command == "sync": result=call("Sync")
+    elif a.command == "clear-cache": result=call("ClearCache")
     elif a.command == "pin": result=call("SetPinned", nodeId=a.node_id, pinned=True)
     elif a.command == "unpin": result=call("SetPinned", nodeId=a.node_id, pinned=False)
     elif a.command == "evict": result=call("Evict", nodeId=a.node_id)
     elif a.command == "retry": result=call("Retry", nodeId=a.node_id)
     elif a.command == "node-status": result=call("GetNodeStatus", nodeId=a.node_id)
     elif a.command == "open":
-        mount=a.path or os.environ.get("OMARCHY_DRIVE_MOUNT", str(Path.home()/"Proton Drive")); subprocess.Popen(["nautilus", mount], start_new_session=True); result={"opened":mount}
+        mount=a.path or os.environ.get("OMARCHY_DRIVE_MOUNT", str(Path.home()/".local/share/omarchy-drive/mount")); subprocess.Popen(["nautilus", mount], start_new_session=True); result={"opened":mount}
     print(json.dumps(result, ensure_ascii=False))
 if __name__ == "__main__":
     try: main()

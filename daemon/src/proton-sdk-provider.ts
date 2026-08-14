@@ -4,7 +4,7 @@ import { createReadStream, createWriteStream } from "node:fs";
 import { Readable, Writable } from "node:stream";
 
 type StreamWritable = WritableStream<Uint8Array>;
-export const PROTON_APP_VERSION = "external-drive-omarchy_drive@0.1.0-alpha";
+export const PROTON_APP_VERSION = "external-drive-omarchy_drive@0.2.0-alpha.1";
 type SdkNode = Record<string, unknown>;
 interface SdkController { completion(): Promise<Record<string, unknown>>; }
 interface SdkDriveEvent { type: string; eventId: string; nodeUid?: string; isTrashed?: boolean; }
@@ -40,8 +40,9 @@ function dateMillis(value: unknown): number {
 /** Thin adapter only. Authentication and construction of ProtonDriveClient live outside it. */
 export class ProtonSdkProvider implements DriveProvider {
   readonly kind = "proton-sdk" as const;
+  private readonly client: SdkClientLike;
   private eventScopeId?: string;
-  constructor(private readonly client: SdkClientLike) {}
+  constructor(client: SdkClientLike) { this.client = client; }
   private map(value: SdkNode): DriveNode {
     const activeRevision = value.activeRevision as Record<string, unknown> | undefined;
     return {
