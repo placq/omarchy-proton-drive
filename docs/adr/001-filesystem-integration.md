@@ -15,4 +15,4 @@ FUSE3 offers a public kernel/userspace contract, is packaged on Arch and lets or
 
 ## Consequences
 
-The mount is a normal path (`~/Proton Drive`) rather than a custom GIO URI. This is less semantically elegant than a native GVfs remote but is maintainable and does not patch system packages. The daemon remains the only cloud-state owner; the FUSE process is a thin RPC adapter.
+The mount uses a hidden path under `~/.local/share/omarchy-drive/mount` rather than a custom GIO URI. Nautilus exposes it through one labeled **Proton Drive** bookmark without showing a second ejectable-device entry. This remains maintainable and does not patch system packages. The daemon remains the only cloud-state owner; the FUSE process is a thin RPC adapter.

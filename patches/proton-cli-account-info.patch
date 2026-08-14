@@ -1,0 +1,89 @@
+diff --git a/cli/src/cli/interface.ts b/cli/src/cli/interface.ts
+index 511737f..89484a8 100644
+--- a/cli/src/cli/interface.ts
++++ b/cli/src/cli/interface.ts
+@@ -7,3 +7,4 @@
+ import { Auth } from '../api';
++import type { ApiClient } from '../api';
+ import type { Manager } from '../events';
+ import type { CliMetrics } from '../telemetry';
+@@ -31,6 +32,7 @@ export type Option = ParseArgsOptionDescriptor & {
+ export interface ActionArgs {
+     logger: Logger;
+     auth: Auth;
++    apiClient: ApiClient;
+     sdk: ProtonDriveClient;
+     photosSdk: ProtonDrivePhotosClient;
+     sdkDiagnostic: Diagnostic;
+diff --git a/cli/src/init.ts b/cli/src/init.ts
+index 9455a66..18d59d9 100644
+--- a/cli/src/init.ts
++++ b/cli/src/init.ts
+@@ -80,6 +80,7 @@ export async function init(configOptions: InitConfig) {
+         logger: logger as Logger,
+         auth,
+         addresses,
++        apiClient,
+         sdk,
+         photosSdk,
+         sdkDiagnostic,
+diff --git a/cli/src/commands/registry.ts b/cli/src/commands/registry.ts
+index 09b822f..67d5346 100644
+--- a/cli/src/commands/registry.ts
++++ b/cli/src/commands/registry.ts
+@@ -1,4 +1,5 @@
+ import { applyDefaultCliOptions } from '../cli';
+ import { CommandAuthLogin } from './auth/commandAuthLogin';
+ import { CommandAuthLogout } from './auth/commandAuthLogout';
++import { CommandAccountInfo } from './account/commandAccountInfo';
+ import { CommandFileSystemCopy } from './fileSystem/commandFileSystemCopy';
+@@ -36,5 +37,6 @@
+ export const COMMANDS = applyDefaultCliOptions([
+     new CommandAuthLogin(),
+     new CommandAuthLogout(),
+-
++    new CommandAccountInfo(),
++
+     // Regular Drive commands
+diff --git a/cli/src/commands/account/commandAccountInfo.ts b/cli/src/commands/account/commandAccountInfo.ts
+new file mode 100644
+index 0000000..b9a08a7
+--- /dev/null
++++ b/cli/src/commands/account/commandAccountInfo.ts
+@@ -0,0 +1,36 @@
++import { type ActionArgs, type Command, printObject } from '../../cli';
++
++type UserResponse = {
++    User?: {
++        Email?: string;
++        DisplayName?: string;
++        MaxSpace?: number;
++        UsedSpace?: number;
++        ProductUsedSpace?: { Drive?: number };
++    };
++};
++
++export class CommandAccountInfo implements Command {
++    group = 'account';
++    name = 'info';
++    help = 'Shows the signed-in account and Drive storage usage.';
++
++    async action({ apiClient, options: { json } }: ActionArgs) {
++        const response = await apiClient.authenticatedRequest
++            .get(`${apiClient.baseUrlWithProtocol}/core/v4/users`)
++            .json<UserResponse>();
++        const user = response.User;
++        if (!user) {
++            throw new Error('Proton account response did not contain a user');
++        }
++        printObject(
++            {
++                email: user.Email ?? '',
++                displayName: user.DisplayName ?? '',
++                usedBytes: user.ProductUsedSpace?.Drive ?? user.UsedSpace ?? 0,
++                totalBytes: user.MaxSpace ?? 0,
++            },
++            json,
++        );
++    }
++}

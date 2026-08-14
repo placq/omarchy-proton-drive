@@ -1,5 +1,5 @@
 [Unit]
-Description=Omarchy Drive session D-Bus bridge
+Description=Proton Drive for Omarchy session D-Bus bridge
 After=omarchy-drive.service
 Requires=omarchy-drive.service
 PartOf=graphical-session.target

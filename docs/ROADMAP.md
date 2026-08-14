@@ -1,14 +1,22 @@
 # Development roadmap
 
-This roadmap takes Omarchy Drive from the current fake-provider developer alpha to a safely installable real-account release. Work moves to the next phase only when the previous phase's exit criteria are met.
+This roadmap takes Proton Drive for Omarchy from the current read-only real-account developer preview to a safely installable, conflict-safe release. Work moves to the next phase only when the previous phase's exit criteria are met.
 
 ## Current baseline
 
-- The provider-independent engine, fake provider, persistent staging, cache, conflict protection and background retry logic are implemented.
-- FUSE3, Nautilus, Quattro QML, D-Bus and systemd adapters exist but have not run together on Omarchy Quattro.
-- The direct Proton Drive SDK adapter streams files and maps event cursors, but no real client can be constructed yet.
-- Real login is disabled because the official CLI currently consumes the monorepo-local, unpublished `proton-drive-sdk-account` package.
-- Automated baseline: 20 tests, TypeScript typecheck, Python/shell syntax checks and dependency audit pass.
+- The provider-independent writable fake engine, persistent staging, cache, conflict protection and background retry logic are implemented.
+- FUSE3, Nautilus, Quattro QML, D-Bus and systemd adapters run together on Omarchy Quattro.
+- Browser login, OS-secret session storage, account identity, storage quota, real browsing and on-demand downloads work through a CLI built from pinned official Proton source.
+- Real accounts are deliberately read-only; FUSE returns `EROFS` for every mutation until conflict-safe revision preconditions are available.
+- The technical FUSE mount is hidden from Nautilus while one persistent **Proton Drive** sidebar bookmark remains.
+- Automated baseline: 30 tests, TypeScript typecheck, Python/shell syntax checks, plugin validation and installed-system diagnostics pass.
+
+## Milestone status
+
+- Phases 1 and 3 are substantially complete on the development workstation.
+- Phase 2 hardening is partially complete; SQLite migration, bounded cancellation and broader fault injection remain.
+- Phase 4 is satisfied only through the isolated official CLI boundary, not a directly constructed SDK client.
+- Phases 5 and 6 remain blocked on clean-machine acceptance and conflict-safe real writes.
 
 ## Phase 1 — Quattro system validation with the fake provider
 
@@ -25,9 +33,9 @@ Goal: prove that the existing components work together on a disposable Omarchy Q
 ### 1.2 Desktop integration
 
 - Confirm all three user services start without manual intervention.
-- Confirm `~/Proton Drive` is mounted automatically and appears as **Proton Drive** in the Nautilus sidebar.
+- Confirm the hidden FUSE mount starts automatically and exactly one **Proton Drive** bookmark appears in the Nautilus sidebar.
 - Confirm the `placq.proton-drive` plugin is detected and enabled.
-- Open the Quattro menu, verify the fake-provider status and use **Open Proton Drive**.
+- Open the Proton bar panel and verify provider status, account details and storage usage.
 - Confirm Nautilus emblems and context actions are shown only inside the Drive mount.
 
 ### 1.3 Filesystem behavior
@@ -158,7 +166,7 @@ Goal: publish an honest, supportable alpha after all safety gates pass.
 | Target | Scope | Gate |
 |---|---|---|
 | `0.1.0-alpha.2` | Quattro fake-provider validation fixes | Phases 1–2 |
-| `0.2.0-alpha.1` | Secure real-account developer preview | Phases 3–5 |
+| `0.2.0-alpha.1` | Secure read-only real-account developer preview | Current checkpoint |
 | `0.3.0-alpha.1` | End-user package and update flow | Phase 6 |
 | Marketplace alpha | Public discoverability | Phase 7 |
 
@@ -174,14 +182,7 @@ Goal: publish an honest, supportable alpha after all safety gates pass.
 
 ## Immediate next session
 
-The next work session should execute Phase 1 on a disposable Omarchy Quattro system. Start with:
-
-```bash
-git clone https://github.com/placq/omarchy-proton-drive.git
-cd omarchy-proton-drive
-./scripts/dev-setup.sh
-./scripts/install.sh --fake
-./scripts/doctor.sh
-```
-
-Do not use a real Proton account during Phase 1. Capture failures with the commands documented in `DEVELOPMENT.md`, fix them in small reviewed pull requests and update `TEST-STATUS.md` after each verified milestone.
+1. Reboot the current workstation and verify service startup, session restore, the bar panel, the single Nautilus bookmark and on-demand file opening.
+2. Exercise fresh login, logout, re-login, revoked session, network loss and recovery on the dedicated test account.
+3. Install `0.2.0-alpha.1` on a clean disposable Omarchy Quattro system without relying on existing user state.
+4. Record results in `INSTALLATION-TEST.md` and `TEST-STATUS.md` before starting writable real-account work.

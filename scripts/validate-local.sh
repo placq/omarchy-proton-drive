@@ -39,4 +39,12 @@ done
 grep -q '^BarWidget[[:space:]]*{' omarchy/BarWidget.qml || { printf 'Invalid bar-widget root\n' >&2; exit 1; }
 grep -q 'moduleName: "placq.proton-drive"' omarchy/BarWidget.qml || { printf 'Missing widget module name\n' >&2; exit 1; }
 
+if command -v omarchy >/dev/null 2>&1; then
+  printf 'Validating packaged Omarchy plugin…\n'
+  plugin_stage="$(mktemp -d)"
+  trap 'rm -rf -- "$plugin_stage"' EXIT
+  cp -a manifest.json omarchy LICENSE README.md "$plugin_stage/"
+  omarchy plugin validate "$plugin_stage"
+fi
+
 printf 'Local validation passed.\n'

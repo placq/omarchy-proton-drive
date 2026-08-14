@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { FakeDriveProvider } from "../src/fake-provider.ts";
@@ -110,8 +110,19 @@ test("RPC rejects path-like identifiers and unsafe names", async () => {
   const { engine } = await fixture(); const rpc = new RpcServer(engine, "/unused");
   const dispatch = (rpc as unknown as { dispatch(method: string, params: Record<string, unknown>): Promise<unknown> }).dispatch.bind(rpc);
   await assert.rejects(dispatch("GetNode", { nodeId: "../state" }), /Invalid nodeId/);
+  await assert.rejects(dispatch("GetNode", { nodeId: "abc==~def==" }), /Node not found/);
   await assert.rejects(dispatch("Rename", { nodeId: "welcome", name: "../state" }), /Invalid node name/);
   await assert.rejects(dispatch("CreateFolder", { parentId: "root", name: "" }), /Invalid node name/);
+});
+
+test("local storage maps long Proton UIDs to safe stable filenames", async () => {
+  const root = await mkdtemp(join(tmpdir(), "omarchy-drive-uid-"));
+  const storage = new LocalStorage(join(root, "cache"), join(root, "state"));
+  const uid = `${"A".repeat(180)}==~${"B".repeat(180)}==`;
+  const first = storage.cachePath(uid);
+  assert.equal(first, storage.cachePath(uid));
+  assert.match(first, /\/uid-[a-f0-9]{64}$/);
+  await rm(root, { recursive: true, force: true });
 });
 
 test("daemon restart recovers interrupted upload from persistent staging", async () => {

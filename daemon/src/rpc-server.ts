@@ -5,7 +5,10 @@ import type { DriveEngine } from "./engine.ts";
 
 interface Request { id: string | number; method: string; params?: Record<string, unknown>; }
 
-const SAFE_ID = /^[A-Za-z0-9._-]+$/;
+// SDK node UIDs are two URL-safe base64 components separated by `~` and may
+// retain `=` padding. Path separators, whitespace and shell metacharacters
+// remain forbidden.
+const SAFE_ID = /^[A-Za-z0-9._~=-]+$/;
 const MAX_NAME_LENGTH = 255;
 
 function requiredId(value: unknown, field: string): string {
@@ -21,14 +24,36 @@ function requiredName(value: unknown): string {
 }
 
 export class RpcServer {
-  constructor(readonly engine: DriveEngine, readonly socketPath: string) {}
+  readonly engine: DriveEngine;
+  readonly socketPath: string;
+  constructor(engine: DriveEngine, socketPath: string) {
+    this.engine = engine;
+    this.socketPath = socketPath;
+  }
   async listen(): Promise<void> {
     await mkdir(dirname(this.socketPath), { recursive: true, mode: 0o700 });
     try { await unlink(this.socketPath); } catch (e) { if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e; }
-    const server = createServer(socket => this.handleSocket(socket));
+    const sockets = new Set<Socket>();
+    const server = createServer(socket => {
+      sockets.add(socket);
+      socket.once("close", () => sockets.delete(socket));
+      this.handleSocket(socket);
+    });
     await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(this.socketPath, () => resolve()); });
     await chmod(this.socketPath, 0o600);
-    process.on("SIGTERM", () => server.close()); process.on("SIGINT", () => server.close());
+    let shuttingDown = false;
+    const shutdown = () => {
+      if (shuttingDown) return;
+      shuttingDown = true;
+      // Stop accepting first. Otherwise a FUSE/DBus client can reconnect in
+      // the gap between destroying the current sockets and server.close(),
+      // leaving systemd stuck waiting for SIGTERM shutdown forever.
+      server.close();
+      for (const socket of sockets) socket.destroy();
+      process.exit(0);
+    };
+    process.once("SIGTERM", shutdown);
+    process.once("SIGINT", shutdown);
   }
   private handleSocket(socket: Socket): void {
     let input = "";
@@ -56,8 +81,19 @@ export class RpcServer {
   private async dispatch(method: string, p: Record<string, unknown>): Promise<unknown> {
     const id = () => requiredId(p.nodeId, "nodeId");
     switch (method) {
-      case "GetVersion": return { version: "0.1.0-alpha.1", apiVersion: 1, provider: this.engine.provider.kind };
-      case "GetStatus": return { connected: ["proton-sdk", "fake"].includes(this.engine.provider.kind), authenticated: this.engine.provider.kind === "proton-sdk", provider: this.engine.provider.kind, transfers: this.engine.transfers.list(true) };
+      case "GetVersion": return { version: "0.2.0-alpha.1", apiVersion: 1, provider: this.engine.provider.kind };
+      case "GetStatus": {
+        let account = null; let connectionError = "";
+        try { account = await this.engine.provider.getAccountInfo?.() ?? null; }
+        catch { connectionError = "Nie udało się połączyć z Proton Drive."; }
+        const authenticated = this.engine.provider.kind === "fake" || account !== null;
+        return {
+          connected: authenticated && connectionError === "", authenticated,
+          readOnly: this.engine.provider.kind === "proton-cli", provider: this.engine.provider.kind,
+          account, connectionError, checkedAt: Date.now(), cacheBytes: await this.engine.cacheUsage(),
+          version: "0.2.0-alpha.1", transfers: this.engine.transfers.list(true),
+        };
+      }
       case "GetRoot": return this.engine.root();
       case "GetNode": return this.engine.getNode(id());
       case "ListChildren": return this.engine.listChildren(id());
@@ -75,6 +111,7 @@ export class RpcServer {
       case "Trash": await this.engine.trash(id()); return null;
       case "GetTransfers": return this.engine.transfers.list();
       case "Sync": await this.engine.syncQueued(); await this.engine.processEvents(); return null;
+      case "ClearCache": return this.engine.clearDisposableCache();
       default: throw new Error(`Unknown method: ${method}`);
     }
   }

@@ -1,5 +1,5 @@
 [Unit]
-Description=Omarchy Drive background service
+Description=Proton Drive for Omarchy background service
 After=graphical-session.target
 PartOf=graphical-session.target
 
@@ -14,7 +14,7 @@ NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=%h/.cache/omarchy-drive %h/.local/state/omarchy-drive %t
+ReadWritePaths=%h/.cache/omarchy-drive %h/.local/state/omarchy-drive %h/.cache/proton-drive-cli %h/.local/state/proton-drive-cli %h/.local/share/proton-drive-cli %t
 
 [Install]
 WantedBy=default.target

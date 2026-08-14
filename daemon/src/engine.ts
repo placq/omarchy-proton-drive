@@ -11,10 +11,18 @@ const UNSAFE_EVICTION = new Set(["dirty", "queued", "uploading", "conflict"]);
 
 export class DriveEngine extends EventEmitter {
   readonly transfers = new TransferManager();
+  readonly provider: DriveProvider;
+  readonly store: StateStore;
+  readonly storage: LocalStorage;
   private readonly activeCommits = new Map<string, Promise<NodeState>>();
   private readonly scheduledCommits = new Set<string>();
   private readonly activeDownloads = new Map<string, Promise<string>>();
-  constructor(readonly provider: DriveProvider, readonly store: StateStore, readonly storage: LocalStorage) { super(); }
+  constructor(provider: DriveProvider, store: StateStore, storage: LocalStorage) {
+    super();
+    this.provider = provider;
+    this.store = store;
+    this.storage = storage;
+  }
 
   async initialize(): Promise<void> {
     await Promise.all([this.store.load(), this.storage.initialize()]);
@@ -182,5 +190,17 @@ export class DriveEngine extends EventEmitter {
     let total = 0; for (const s of this.store.getStates()) if (s.cachePath) { try { total += await this.storage.size(s.cachePath); } catch {} }
     for (const state of candidates) { if (total <= maxBytes) break; const size = await this.storage.size(state.cachePath!); await this.evict(state.nodeId); total -= size; }
     return total;
+  }
+  async cacheUsage(): Promise<number> {
+    let total = 0;
+    for (const state of this.store.getStates()) if (state.cachePath) {
+      try { total += await this.storage.size(state.cachePath); } catch {}
+    }
+    return total;
+  }
+  async clearDisposableCache(): Promise<{ freedBytes: number; cacheBytes: number }> {
+    const before = await this.cacheUsage();
+    const cacheBytes = await this.enforceCacheLimit(0);
+    return { freedBytes: Math.max(0, before - cacheBytes), cacheBytes };
   }
 }

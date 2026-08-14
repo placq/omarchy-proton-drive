@@ -1,9 +1,14 @@
 import { access, chmod, copyFile, mkdir, open, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { basename, dirname, join, resolve } from "node:path";
 
 function safeId(id: string): string {
-  if (!/^[A-Za-z0-9._-]+$/.test(id) || id === "." || id === "..") throw new Error("Unsafe node id");
-  return id;
+  if (!/^[A-Za-z0-9._~=-]+$/.test(id) || id === "." || id === "..") throw new Error("Unsafe node id");
+  // Proton UIDs can exceed NAME_MAX. Hash long/encoded IDs into a stable,
+  // non-secret local filename while the full UID remains in state metadata.
+  return /^[A-Za-z0-9._-]+$/.test(id) && id.length <= 100
+    ? id
+    : `uid-${createHash("sha256").update(id).digest("hex")}`;
 }
 
 async function ensurePrivate(path: string): Promise<void> { await mkdir(path, { recursive: true, mode: 0o700 }); await chmod(path, 0o700); }

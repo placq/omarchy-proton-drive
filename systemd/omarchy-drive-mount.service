@@ -1,12 +1,12 @@
 [Unit]
-Description=Mount Omarchy Drive in Files
+Description=Mount Proton Drive for Omarchy in Files
 After=omarchy-drive.service
 Requires=omarchy-drive.service
 
 [Service]
 Type=simple
-ExecStart=/usr/lib/omarchy-drive/filesystem/fuse/omarchy-drive-fuse.py %h/Proton Drive --socket %t/omarchy-drive.sock
-ExecStop=/usr/bin/fusermount3 -u %h/Proton Drive
+ExecStart=/usr/lib/omarchy-drive/filesystem/fuse/omarchy-drive-fuse.py "%h/.local/share/omarchy-drive/mount" --socket %t/omarchy-drive.sock
+ExecStop=/usr/bin/fusermount3 -u "%h/.local/share/omarchy-drive/mount"
 Restart=on-failure
 RestartSec=5
 

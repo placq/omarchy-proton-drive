@@ -1,8 +1,8 @@
 # Installation acceptance test
 
-Status: **not passed — do not publish to the marketplace**.
+Status: **developer-preview path passed on the development workstation; clean-machine and writable-flow gates remain open — do not publish to the marketplace**.
 
-The automated core suite passes against the fake provider. The environment used for development was not Omarchy Quattro, prohibited opening a Unix-domain listening socket/FUSE mount, and had no safe public Proton auth bootstrap. RPC dispatch was tested in-process, but the required fresh-system test with a real account was not claimed.
+The automated core suite, live fake-provider desktop test and read-only real-account path pass on Omarchy Quattro, including browser login, OS secret storage, Unix socket, session D-Bus bridge, FUSE mount, one Nautilus bookmark, account/storage bar panel, on-demand download and service restart recovery. A clean-system marketplace installation and conflict-safe real writes are not yet claimed.
 
 Release gate:
 

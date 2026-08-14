@@ -1,5 +1,5 @@
 pkgname=omarchy-drive
-pkgver=0.1.0_alpha1
+pkgver=0.2.0_alpha1
 pkgrel=1
 pkgdesc="Unofficial Proton Drive desktop integration for Omarchy Quattro"
 arch=('any')
@@ -22,6 +22,7 @@ package() {
   cp -a "$src/daemon" "$src/filesystem" "$src/ipc" "$src/node_modules" "$src/package.json" "$pkgdir/usr/lib/omarchy-drive/"
   install -Dm755 "$src/scripts/omarchy-drive-control" "$pkgdir/usr/bin/omarchy-drive-control"
   install -Dm644 "$src/nautilus/extension/omarchy_drive.py" "$pkgdir/usr/share/nautilus-python/extensions/omarchy_drive.py"
+  install -Dm644 "$src/nautilus/extension/drive_logic.py" "$pkgdir/usr/share/nautilus-python/extensions/drive_logic.py"
   install -Dm644 "$src/systemd/omarchy-drive.service" "$pkgdir/usr/lib/systemd/user/omarchy-drive.service"
   install -Dm644 "$src/systemd/omarchy-drive-mount.service" "$pkgdir/usr/lib/systemd/user/omarchy-drive-mount.service"
   install -Dm644 "$src/systemd/omarchy-drive-dbus.service" "$pkgdir/usr/lib/systemd/user/omarchy-drive-dbus.service"

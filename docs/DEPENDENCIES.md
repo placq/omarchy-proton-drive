@@ -13,6 +13,6 @@ Verified 2026-08-13.
 
 The npm lockfile records package integrity. Before every SDK update, rerun type checks, unit tests and real-account tests, and review the SDK changelog for event, crypto and upload metadata changes.
 
-The future authenticated HTTP bootstrap must identify itself with `x-pm-appversion: external-drive-omarchy_drive@0.1.0-alpha`; the constant is exported by `ProtonSdkProvider`. It must never impersonate a first-party client.
+The authenticated integration identifies itself with `x-pm-appversion: external-drive-omarchy_drive@0.2.0-alpha.1`; the constant is exported by `ProtonSdkProvider`. It never impersonates a first-party client.
 
 The official CLI's authentication layer is source-available in the SDK monorepo, but it imports `proton-drive-sdk-account` through the local workspace path `file:../incubating/account/js`. That account package is not a published npm dependency, so the code cannot currently be consumed as a normal, independently versioned production dependency. See [AUTH-INTEGRATION.md](AUTH-INTEGRATION.md).
