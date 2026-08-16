@@ -5,6 +5,7 @@ PartOf=graphical-session.target
 
 [Service]
 Type=simple
+UMask=0077
 EnvironmentFile=-%E/omarchy-drive/environment
 ExecStart=/usr/bin/bun /usr/lib/omarchy-drive/daemon/src/main.ts
 Restart=on-failure

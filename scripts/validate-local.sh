@@ -6,6 +6,8 @@ printf 'Validating manifest…\n'
 node - <<'NODE'
 const fs = require('fs');
 const manifest = JSON.parse(fs.readFileSync('manifest.json', 'utf8'));
+const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+const lock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
 for (const field of ['schemaVersion', 'id', 'name', 'version', 'kinds', 'entryPoints']) {
   if (!(field in manifest)) throw new Error(`manifest missing ${field}`);
 }
@@ -15,15 +17,24 @@ if (manifest.schemaVersion !== 1 || !Array.isArray(manifest.kinds) || !manifest.
 if (typeof manifest.entryPoints.service !== 'string' || typeof manifest.entryPoints.barWidget !== 'string') {
   throw new Error('manifest is missing service or barWidget entry point');
 }
+if (manifest.version !== pkg.version) throw new Error(`manifest/package version mismatch: ${manifest.version} != ${pkg.version}`);
+if (lock.version !== pkg.version || lock.packages?.[""]?.version !== pkg.version) throw new Error('package-lock version mismatch');
+for (const file of ['daemon/src/rpc-server.ts', 'daemon/src/proton-sdk-provider.ts', 'scripts/doctor.sh', 'scripts/install-proton-cli.sh']) {
+  if (!fs.readFileSync(file, 'utf8').includes(pkg.version)) throw new Error(`${file} does not contain package version ${pkg.version}`);
+}
+const archVersion = pkg.version.replace(/-alpha\./, '_alpha');
+if (!fs.readFileSync('packaging/arch/PKGBUILD', 'utf8').includes(`pkgver=${archVersion}`)) throw new Error('PKGBUILD version mismatch');
 for (const entry of Object.values(manifest.entryPoints)) {
   if (typeof entry !== 'string' || entry.startsWith('/') || entry.includes('..')) throw new Error(`unsafe entry point: ${entry}`);
 }
 NODE
 
 printf 'Checking scripts and Python modules…\n'
-bash -n scripts/*.sh scripts/omarchy-drive-control
-python3 -m py_compile filesystem/fuse/omarchy-drive-fuse.py ipc/dbus/omarchy_drive_dbus.py nautilus/extension/omarchy_drive.py nautilus/extension/drive_logic.py
+bash -n scripts/*.sh
+python3 -m py_compile scripts/omarchy-drive-control scripts/real-account-smoke.py filesystem/fuse/omarchy-drive-fuse.py ipc/dbus/omarchy_drive_dbus.py nautilus/extension/omarchy_drive.py nautilus/extension/drive_logic.py
 python3 -m unittest discover -s nautilus/extension -p 'test_*.py'
+grep -q 'is_local_trash' filesystem/fuse/omarchy-drive-fuse.py || { printf 'FUSE must reject the generic local trash protocol\n' >&2; exit 1; }
+./scripts/test-dbus.sh
 
 if command -v systemd-analyze >/dev/null 2>&1; then
   printf 'Checking systemd units…\n'

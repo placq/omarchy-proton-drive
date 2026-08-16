@@ -23,8 +23,8 @@ Real-account support may be enabled only when all of the following are true:
 
 1. The account/auth implementation is available as a versioned Proton dependency, or a vendored copy has an explicit license review and an exact upstream commit pin.
 2. The login flow supports Proton's current SRP, two-factor and extra-password requirements without logging credentials or accepting them over project IPC.
-3. Refresh token, access token, user-key password and cache key are held only in the user's secret service; no secrets enter `state.json`, logs, environment files or command arguments.
-4. HTTP requests use `x-pm-appversion: external-drive-omarchy_drive@0.2.0-alpha.1` and do not impersonate a first-party client.
+3. Refresh token, access token, user-key password and cache key are held only in the user's secret service; no secrets enter project SQLite/legacy JSON state, logs, environment files or command arguments.
+4. HTTP requests use `x-pm-appversion: external-drive-omarchy_drive@0.3.0-alpha.2` and do not impersonate a first-party client.
 5. Logout removes the stored session, stops the provider and leaves dirty/staged local data recoverable.
 6. A dedicated Proton test account passes login, session refresh, restart, revoked-session, 2FA, offline and logout tests on Omarchy Quattro.
 
@@ -32,4 +32,4 @@ Real-account support may be enabled only when all of the following are true:
 
 `OfficialCliProvider` invokes only Proton's official CLI with argument arrays. Passwords and session tokens never cross project IPC or process arguments. Browser login and session refresh stay inside the upstream executable, and credentials remain under service `ch.proton.drive/drive-sdk-cli` in the OS secret store.
 
-The provider is intentionally read-only. Browsing and downloads are enabled; all cloud mutations return a read-only error and FUSE enforces `EROFS`. `ProtonSdkProvider` remains the future direct integration seam once the account module is published with a stable API or upstream adds conflict-safe revision preconditions to CLI operations.
+The provider uses the official CLI for browsing, downloads and mutations. Edits are guarded by a fresh remote revision check and use the CLI's `create-new-revision` strategy, so a detected remote change is preserved as a local conflict instead of silently replacing the remote file. The CLI owns authentication, cryptography and its internal event cursor; this project emits refresh markers because the CLI does not expose its event stream.

@@ -16,8 +16,9 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - run: sudo apt-get update && sudo apt-get install -y dbus-x11 python3-dbus-next
       - run: npm ci --ignore-scripts
       - run: npm test
       - run: npm run check
-      - run: python3 -m py_compile filesystem/fuse/omarchy-drive-fuse.py ipc/dbus/omarchy_drive_dbus.py nautilus/extension/omarchy_drive.py
-      - run: bash -n scripts/*.sh scripts/omarchy-drive-control
+      - run: OMARCHY_DRIVE_REQUIRE_DBUS_TEST=1 npm run validate
+      - run: npm audit --omit=dev

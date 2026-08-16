@@ -1,13 +1,15 @@
 import { copyFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
-import type { DriveProvider } from "./provider.ts";
-import { ConflictError, OfflineError, UnsafeEvictionError, type DriveNode, type NodeState } from "./domain.ts";
+import type { DriveProvider, RequestPriority } from "./provider.ts";
+import { ConflictError, OfflineError, UnsafeEvictionError, UnsafeMutationError, type DriveNode, type NodeState, type Transfer } from "./domain.ts";
 import { LocalStorage } from "./local-storage.ts";
 import { StateStore } from "./state-store.ts";
 import { TransferManager } from "./transfer-manager.ts";
 
 const UNSAFE_EVICTION = new Set(["dirty", "queued", "uploading", "conflict"]);
+const LISTING_TTL_MS = Math.max(1_000, Number(process.env.OMARCHY_DRIVE_LISTING_TTL_MS ?? 30_000));
+const PREFETCH_CONCURRENCY = Math.max(1, Number(process.env.OMARCHY_DRIVE_PREFETCH_CONCURRENCY ?? 2));
 
 export class DriveEngine extends EventEmitter {
   readonly transfers = new TransferManager();
@@ -16,16 +18,26 @@ export class DriveEngine extends EventEmitter {
   readonly storage: LocalStorage;
   private readonly activeCommits = new Map<string, Promise<NodeState>>();
   private readonly scheduledCommits = new Set<string>();
+  private readonly queuedTransfers = new Map<string, string>();
+  private readonly uploadAborts = new Map<string, AbortController>();
   private readonly activeDownloads = new Map<string, Promise<string>>();
+  private readonly activeListings = new Map<string, Promise<DriveNode[]>>();
+  private activeRoot?: Promise<DriveNode>;
+  private readonly prefetchQueued = new Set<string>();
+  private readonly prefetchQueue: string[] = [];
+  private prefetchActive = 0;
+  private readonly prefetchLimit: number;
   constructor(provider: DriveProvider, store: StateStore, storage: LocalStorage) {
     super();
     this.provider = provider;
     this.store = store;
     this.storage = storage;
+    this.prefetchLimit = Math.max(0, Number(process.env.OMARCHY_DRIVE_PREFETCH_FOLDERS ?? (provider.kind === "proton-cli" ? 0 : 12)));
   }
 
   async initialize(): Promise<void> {
     await Promise.all([this.store.load(), this.storage.initialize()]);
+    this.provider.primeNodes?.(this.store.getNodes());
     let changed = false;
     for (const state of this.store.getStates()) {
       const stagingExists = await this.storage.exists(state.stagingPath); const cacheExists = await this.storage.exists(state.cachePath);
@@ -50,22 +62,95 @@ export class DriveEngine extends EventEmitter {
     this.store.setNode(node); this.store.setState(state ?? this.stateFor(node)); await this.store.save(); this.emit("nodeChanged", node.id);
   }
   async root(): Promise<DriveNode> {
-    try { const root = await this.provider.getRoot(); await this.remember(root); return root; }
-    catch (e) { const cached = this.store.getNode("root"); if (e instanceof OfflineError && cached) return cached; throw e; }
+    const cached = this.store.getRoot();
+    if (cached) { void this.refreshRoot("background").catch(() => undefined); return cached; }
+    return this.refreshRoot();
+  }
+  private async refreshRoot(priority: RequestPriority = "interactive"): Promise<DriveNode> {
+    if (this.activeRoot) return this.activeRoot;
+    const operation = (async () => { const root = await this.provider.getRoot(priority); await this.remember(root); return root; })().finally(() => { this.activeRoot = undefined; });
+    this.activeRoot = operation; return operation;
   }
   async listChildren(parentId: string): Promise<DriveNode[]> {
+    const cached = this.store.getChildren(parentId);
+    const parent = this.store.getNode(parentId);
+    const parentState = parent ? this.stateFor(parent) : undefined;
+    const known = Boolean(parentState?.childrenKnown || cached.length);
+    if (known) {
+      if (parentState && !parentState.childrenKnown) {
+        parentState.childrenKnown = true; this.store.setState(parentState); await this.store.save();
+      }
+      if (!parentState?.childrenRefreshedAt || Date.now() - parentState.childrenRefreshedAt >= LISTING_TTL_MS) {
+        void this.refreshChildren(parentId, "background").catch(() => undefined);
+      }
+      this.schedulePrefetch(cached);
+      return cached;
+    }
+    const nodes = await this.refreshChildren(parentId);
+    this.schedulePrefetch(nodes);
+    return nodes;
+  }
+  async lookupChild(parentId: string, name: string): Promise<DriveNode> {
+    const cached = this.store.findChild(parentId, name);
+    if (cached) {
+      const parent = this.store.getNode(parentId); const state = parent ? this.stateFor(parent) : undefined;
+      if (!state?.childrenRefreshedAt || Date.now() - state.childrenRefreshedAt >= LISTING_TTL_MS) void this.refreshChildren(parentId, "background").catch(() => undefined);
+      return cached;
+    }
+    const child = (await this.refreshChildren(parentId)).find(node => node.name === name);
+    if (!child) throw new Error(`Node not found: ${name}`);
+    return child;
+  }
+  private async refreshChildren(parentId: string, priority: RequestPriority = "interactive"): Promise<DriveNode[]> {
+    const active = this.activeListings.get(parentId); if (active) return active;
+    const operation = this.performRefreshChildren(parentId, priority).finally(() => this.activeListings.delete(parentId));
+    this.activeListings.set(parentId, operation); return operation;
+  }
+  private async performRefreshChildren(parentId: string, priority: RequestPriority): Promise<DriveNode[]> {
     try {
-      const nodes = await this.provider.listChildren(parentId);
+      const nodes = await this.provider.listChildren(parentId, priority);
+      const seen = new Set(nodes.map(node => node.id));
       for (const node of nodes) { this.store.setNode(node); const state = this.stateFor(node); state.remoteRevision = node.revision; this.store.setState(state); }
-      await this.store.save(); return nodes;
+      for (const cached of this.store.getChildren(parentId).filter(node => !seen.has(node.id))) {
+        const state = this.store.getState(cached.id);
+        if (state && UNSAFE_EVICTION.has(state.status)) continue;
+        await this.storage.remove(state?.cachePath); this.store.deleteNode(cached.id); this.emit("nodeChanged", cached.id);
+      }
+      const parent = this.store.getNode(parentId);
+      if (parent) {
+        const state = this.stateFor(parent); state.childrenKnown = true; state.childrenRefreshedAt = Date.now(); this.store.setState(state);
+      }
+      await this.store.save(); this.emit("nodeChanged", parentId); return nodes;
     } catch (e) {
       if (e instanceof OfflineError) return this.store.getNodes().filter(n => n.parentId === parentId);
       throw e;
     }
   }
+  private schedulePrefetch(nodes: DriveNode[]): void {
+    for (const folder of nodes.filter(node => node.kind === "folder").slice(0, this.prefetchLimit)) {
+      const state = this.store.getState(folder.id);
+      const hasPersistedChildren = this.store.getChildren(folder.id).length > 0;
+      if (state?.childrenKnown || hasPersistedChildren || this.activeListings.has(folder.id) || this.prefetchQueued.has(folder.id)) continue;
+      this.prefetchQueued.add(folder.id); this.prefetchQueue.push(folder.id);
+    }
+    this.drainPrefetch();
+  }
+  private drainPrefetch(): void {
+    while (this.prefetchActive < PREFETCH_CONCURRENCY && this.prefetchQueue.length) {
+      const folderId = this.prefetchQueue.shift()!; this.prefetchQueued.delete(folderId); this.prefetchActive += 1;
+      void this.refreshChildren(folderId, "background").catch(() => undefined).finally(() => { this.prefetchActive -= 1; this.drainPrefetch(); });
+    }
+  }
   async getNode(nodeId: string): Promise<DriveNode> {
     try { const node = await this.provider.getNode(nodeId); this.store.setNode(node); await this.store.save(); return node; }
     catch (e) { const cached = this.store.getNode(nodeId); if (e instanceof OfflineError && cached) return cached; throw e; }
+  }
+  private freshListedNode(nodeId: string): DriveNode | undefined {
+    const node = this.store.getNode(nodeId);
+    if (!node?.parentId) return undefined;
+    const parentState = this.store.getState(node.parentId);
+    if (!parentState?.childrenRefreshedAt || Date.now() - parentState.childrenRefreshedAt >= LISTING_TTL_MS) return undefined;
+    return node;
   }
   getState(nodeId: string): NodeState | undefined { return this.store.getState(nodeId); }
   async materialize(nodeId: string): Promise<string> {
@@ -74,60 +159,73 @@ export class DriveEngine extends EventEmitter {
     this.activeDownloads.set(nodeId, operation); return operation;
   }
   private async performMaterialize(nodeId: string): Promise<string> {
-    const node = await this.getNode(nodeId); if (node.kind !== "file") throw new Error("Cannot open a folder as a file");
-    const state = this.stateFor(node);
-    if (state.cachePath && state.remoteRevision === node.revision && ["cached", "pinned"].includes(state.status)) {
-      state.lastAccessedAt = Date.now(); this.store.setState(state); await this.store.save(); return state.cachePath;
+    const cachedNode = this.store.getNode(nodeId); const cachedState = cachedNode ? this.stateFor(cachedNode) : undefined;
+    if (cachedState?.cachePath && cachedState.remoteRevision === cachedNode!.revision && ["cached", "pinned"].includes(cachedState.status) && await this.storage.exists(cachedState.cachePath)) {
+      cachedState.lastAccessedAt = Date.now(); this.store.setState(cachedState); void this.store.save(); return cachedState.cachePath;
     }
-    if (state.stagingPath && ["dirty", "queued", "conflict"].includes(state.status)) return state.stagingPath;
+    if (cachedState?.cachePath && ["queued", "uploading", "error"].includes(cachedState.status) && await this.storage.exists(cachedState.cachePath)) return cachedState.cachePath;
+    if (cachedState?.stagingPath && ["dirty", "queued", "conflict"].includes(cachedState.status) && await this.storage.exists(cachedState.stagingPath)) return cachedState.stagingPath;
+    const node = this.freshListedNode(nodeId) ?? await this.getNode(nodeId); if (node.kind !== "file") throw new Error("Cannot open a folder as a file");
+    const state = this.stateFor(node);
     state.status = "downloading"; this.store.setState(state); await this.store.save();
-    const transfer = this.transfers.start(node.id, "download", node.name, node.size);
+    const transfer = this.transfers.start(node.id, "download", node.name, this.provider.progressSupported === false ? 0 : node.size);
     try {
       const path = this.storage.cachePath(node.id); const temporary = this.storage.downloadPath(node.id);
       await this.storage.remove(temporary);
-      const result = await this.provider.downloadToPath(node.id, temporary, (done) => this.transfers.progress(transfer.id, done));
+      const result = await this.provider.downloadToPath(node.id, temporary, (done) => this.transfers.progress(transfer.id, done), node);
       await this.storage.finalizeDownload(temporary, path);
       state.cachePath = path; state.remoteRevision = result.revision; state.status = state.pinned ? "pinned" : "cached"; state.lastAccessedAt = Date.now();
       this.store.setState(state); await this.store.save(); this.transfers.finish(transfer.id); this.emit("nodeChanged", node.id); return path;
     } catch (e) { state.status = "error"; state.error = e instanceof Error ? e.message : String(e); this.store.setState(state); await this.store.save(); this.transfers.fail(transfer.id, e); throw e; }
   }
   async pin(nodeId: string, pinned: boolean): Promise<NodeState> {
-    const node = await this.getNode(nodeId); const state = this.stateFor(node); state.pinned = pinned; this.store.setState(state); await this.store.save();
+    const node = this.store.getNode(nodeId) ?? await this.getNode(nodeId); const state = this.stateFor(node); state.pinned = pinned; this.store.setState(state); await this.store.save();
+    if (node.kind === "folder") {
+      for (const child of await this.listChildren(node.id)) await this.pin(child.id, pinned);
+      state.status = pinned ? "pinned" : "cached";
+      this.store.setState(state); await this.store.save(); this.emit("nodeChanged", nodeId); return state;
+    }
     if (pinned && node.kind === "file") await this.materialize(nodeId);
     const updated = this.stateFor(node); if (pinned && updated.status === "cached") updated.status = "pinned"; if (!pinned && updated.status === "pinned") updated.status = "cached";
     this.store.setState(updated); await this.store.save(); this.emit("nodeChanged", nodeId); return updated;
   }
   async evict(nodeId: string): Promise<NodeState> {
-    const node = await this.getNode(nodeId); const state = this.stateFor(node);
+    const node = this.store.getNode(nodeId) ?? await this.getNode(nodeId); const state = this.stateFor(node);
     if (UNSAFE_EVICTION.has(state.status)) throw new UnsafeEvictionError(state.status);
     if (state.stagingPath && await this.storage.exists(state.stagingPath)) throw new UnsafeEvictionError(state.status);
     await this.storage.remove(state.cachePath); state.cachePath = undefined; state.pinned = false; state.status = "cloud-only"; state.lastAccessedAt = Date.now();
     this.store.setState(state); await this.store.save(); this.emit("nodeChanged", nodeId); return state;
   }
   async stageBytes(nodeId: string, bytes: Uint8Array): Promise<NodeState> {
-    const node = await this.getNode(nodeId); if (node.kind !== "file") throw new Error("Cannot write a folder"); const state = this.stateFor(node);
+    const node = this.store.getNode(nodeId) ?? await this.getNode(nodeId); if (node.kind !== "file") throw new Error("Cannot write a folder"); const state = this.stateFor(node);
     state.stagingPath = await this.storage.stageBytes(bytes, nodeId); state.baseRevision = state.remoteRevision || node.revision; state.status = "dirty"; state.error = undefined;
     this.store.setState(state); await this.store.save(); this.emit("nodeChanged", nodeId); return state;
   }
   async stageFile(nodeId: string, localPath: string): Promise<NodeState> {
-    const node = await this.getNode(nodeId); if (node.kind !== "file") throw new Error("Cannot write a folder"); const state = this.stateFor(node);
+    const node = this.store.getNode(nodeId) ?? await this.getNode(nodeId); if (node.kind !== "file") throw new Error("Cannot write a folder"); const state = this.stateFor(node);
     state.stagingPath = await this.storage.stageFrom(localPath, nodeId); state.baseRevision = state.remoteRevision || node.revision; state.status = "dirty"; state.error = undefined;
     this.store.setState(state); await this.store.save(); this.emit("nodeChanged", nodeId); return state;
   }
   async beginWrite(nodeId: string): Promise<string> {
     if (this.scheduledCommits.has(nodeId) || this.activeCommits.has(nodeId)) throw new Error("A previous version is still uploading");
-    const node = await this.getNode(nodeId); const current = this.stateFor(node);
+    const node = this.store.getNode(nodeId) ?? await this.getNode(nodeId); const current = this.stateFor(node);
     if (current.status === "conflict") throw new ConflictError("Resolve the existing conflict before editing again");
     if (current.stagingPath && ["dirty", "queued", "error"].includes(current.status) && await this.storage.exists(current.stagingPath)) {
       current.status = "dirty"; current.error = undefined; this.store.setState(current); await this.store.save(); return current.stagingPath;
     }
-    const source = await this.materialize(nodeId); const state = await this.stageFile(nodeId, source); return state.stagingPath!;
+    const source = await this.materialize(nodeId); current.stagingPath = await this.storage.stageFrom(source, nodeId);
+    current.baseRevision = current.remoteRevision || node.revision; current.status = "dirty"; current.error = undefined;
+    this.store.setState(current); await this.store.save(); this.emit("nodeChanged", nodeId); return current.stagingPath;
   }
   async queueCommit(nodeId: string): Promise<NodeState> {
     const cachedNode = this.store.getNode(nodeId); if (!cachedNode) throw new Error(`Node not known: ${nodeId}`); const state = this.stateFor(cachedNode);
     if (!state.stagingPath) throw new Error("No staged changes");
     if (this.scheduledCommits.has(nodeId) || this.activeCommits.has(nodeId)) return state;
+    const cachePath = this.storage.cachePath(nodeId); await copyFile(state.stagingPath, cachePath); state.cachePath = cachePath;
+    cachedNode.size = await this.storage.size(state.stagingPath); cachedNode.modifiedAt = Date.now(); this.store.setNode(cachedNode);
     state.status = "queued"; state.error = undefined; this.store.setState(state); await this.store.save(); this.emit("nodeChanged", nodeId);
+    const queuedTransfer = this.transfers.start(nodeId, "upload", cachedNode.name, this.provider.progressSupported === false ? 0 : cachedNode.size, "queued");
+    this.queuedTransfers.set(nodeId, queuedTransfer.id);
     this.scheduledCommits.add(nodeId);
     setImmediate(() => { this.scheduledCommits.delete(nodeId); void this.commit(nodeId); });
     return state;
@@ -139,23 +237,81 @@ export class DriveEngine extends EventEmitter {
   }
   private async performCommit(nodeId: string): Promise<NodeState> {
     const cachedNode = this.store.getNode(nodeId); if (!cachedNode) throw new Error(`Node not known: ${nodeId}`); const state = this.stateFor(cachedNode);
-    if (!state.stagingPath) throw new Error("No staged changes"); const expectedSize = await this.storage.size(state.stagingPath);
-    state.status = "uploading"; this.store.setState(state); await this.store.save(); const transfer = this.transfers.start(nodeId, "upload", cachedNode.name, expectedSize);
+    if (!state.stagingPath) throw new Error("No staged changes");
+    const wasQueued = state.status === "queued";
+    const expectedSize = await this.storage.size(state.stagingPath);
+    const cachePath = this.storage.cachePath(nodeId); await copyFile(state.stagingPath, cachePath); state.cachePath = cachePath;
+    // A cancel that raced the staging copy reverts to a dirty state; keep the
+    // staged bytes editable and re-uploadable instead of uploading anyway.
+    if (wasQueued && state.status === "dirty") return state;
+    state.status = "uploading"; this.store.setState(state); await this.store.save();
+    let transfer: Transfer;
+    const queuedId = this.queuedTransfers.get(nodeId);
+    if (queuedId) {
+      const queued = this.transfers.list().find(candidate => candidate.id === queuedId);
+      if (queued && queued.state === "queued") {
+        this.transfers.begin(queued.id); transfer = queued;
+      } else if (queued && queued.state === "cancelled") {
+        this.queuedTransfers.delete(nodeId);
+        state.status = "dirty"; state.error = undefined; this.store.setState(state); await this.store.save(); return state;
+      } else {
+        return state;
+      }
+    } else {
+      transfer = this.transfers.start(nodeId, "upload", cachedNode.name, this.provider.progressSupported === false ? 0 : expectedSize);
+    }
+    const abort = new AbortController(); this.uploadAborts.set(transfer.id, abort);
     try {
       const remote = await this.provider.getNode(nodeId);
       if (state.baseRevision && remote.revision !== state.baseRevision) throw new ConflictError();
-      const uploaded = await this.provider.upload({ parentId: cachedNode.parentId ?? "root", nodeId, name: cachedNode.name, sourcePath: state.stagingPath, expectedSize, expectedRevision: state.baseRevision, modifiedAt: Date.now(), onProgress: done => this.transfers.progress(transfer.id, done) });
-      const cachePath = this.storage.cachePath(nodeId); await copyFile(state.stagingPath, cachePath); await this.storage.remove(state.stagingPath);
+      const uploaded = await this.provider.upload({ parentId: cachedNode.parentId ?? "root", nodeId, name: cachedNode.name, sourcePath: state.stagingPath, expectedSize, expectedRevision: state.baseRevision, knownRemote: remote, modifiedAt: Date.now(), onProgress: done => this.transfers.progress(transfer.id, done), signal: abort.signal });
+      await this.storage.remove(state.stagingPath);
       state.stagingPath = undefined; state.cachePath = cachePath; state.remoteRevision = uploaded.revision; state.baseRevision = undefined; state.status = state.pinned ? "pinned" : "cached"; state.error = undefined;
       this.store.setNode(uploaded); this.store.setState(state); await this.store.save(); this.transfers.finish(transfer.id); this.emit("nodeChanged", nodeId); return state;
     } catch (e) {
+      if (abort.signal.aborted) {
+        state.status = "dirty"; state.error = "Upload cancelled"; state.cachePath = cachePath;
+        this.store.setState(state); await this.store.save(); this.transfers.cancel(transfer.id); this.emit("nodeChanged", nodeId); return state;
+      }
       if (e instanceof ConflictError) { const preserved = await this.storage.preserveConflict(state.stagingPath!, nodeId, cachedNode.name); state.status = "conflict"; state.error = `Both versions preserved; local copy: ${preserved}`; }
       else if (e instanceof OfflineError) { state.status = "queued"; state.error = "Waiting for network"; }
       else { state.status = "error"; state.error = e instanceof Error ? e.message : String(e); }
       this.store.setState(state); await this.store.save(); this.transfers.fail(transfer.id, e); this.emit("nodeChanged", nodeId); return state;
+    } finally {
+      this.uploadAborts.delete(transfer.id); this.queuedTransfers.delete(nodeId);
     }
   }
+  async cancelQueuedUpload(transferId: string): Promise<NodeState> {
+    const transfer = this.transfers.list().find(candidate => candidate.id === transferId);
+    if (!transfer) throw new Error(`Unknown transfer: ${transferId}`);
+    if (transfer.direction !== "upload") throw new Error("Only upload transfers can be cancelled");
+    const node = this.store.getNode(transfer.nodeId); if (!node) throw new Error(`Node not known: ${transfer.nodeId}`);
+    const state = this.stateFor(node);
+    if (transfer.state === "queued") {
+      if (state.status !== "queued") throw new Error("Upload is already running or finished");
+      // The queued commit is still preparing staging; mark the transfer
+      // cancelled and let the pending commit flip the node back to dirty so
+      // the staged bytes stay editable and re-uploadable.
+      this.transfers.cancel(transferId); this.emit("nodeChanged", transfer.nodeId); return state;
+    }
+    if (transfer.state === "running") {
+      const abort = this.uploadAborts.get(transferId);
+      if (!abort) throw new Error("Upload is already finishing");
+      abort.abort(); return state;
+    }
+    throw new Error("Upload is already finished");
+  }
   async syncQueued(): Promise<void> { for (const state of this.store.getStates()) if (state.status === "queued") await this.commit(state.nodeId); }
+  async retry(nodeId: string): Promise<NodeState> {
+    const node = this.store.getNode(nodeId) ?? await this.getNode(nodeId);
+    const state = this.stateFor(node);
+    if (state.stagingPath && await this.storage.exists(state.stagingPath)) return this.commit(nodeId);
+    if (state.status === "error" && node.kind === "file") {
+      await this.materialize(nodeId);
+      return this.stateFor(node);
+    }
+    throw new Error("Node has no failed or queued operation to retry");
+  }
   async maintenanceCycle(maxCacheBytes: number): Promise<void> {
     await this.syncQueued();
     await this.processEvents();
@@ -164,17 +320,131 @@ export class DriveEngine extends EventEmitter {
   async createFolder(parentId: string, name: string): Promise<DriveNode> { const node = await this.provider.createFolder(parentId, name); await this.remember(node); return node; }
   async createFile(parentId: string, name: string, bytes: Uint8Array): Promise<DriveNode> {
     const temporaryId = `new-${randomUUID()}`; const sourcePath = await this.storage.stageBytes(bytes, temporaryId);
-    try { const node = await this.provider.upload({ parentId, name, sourcePath, expectedSize: bytes.byteLength, modifiedAt: Date.now() }); await this.remember(node); return node; }
+    try {
+      const node = await this.provider.upload({ parentId, name, sourcePath, expectedSize: bytes.byteLength, modifiedAt: Date.now() });
+      const cachePath = this.storage.cachePath(node.id); await copyFile(sourcePath, cachePath);
+      await this.remember(node, { ...this.stateFor(node), status: "cached", cachePath, remoteRevision: node.revision, lastAccessedAt: Date.now() });
+      return node;
+    }
     finally { await this.storage.remove(sourcePath); }
   }
-  async rename(nodeId: string, name: string): Promise<DriveNode> { const node = await this.provider.rename(nodeId, name); await this.remember(node, { ...this.stateFor(node), remoteRevision: node.revision }); return node; }
-  async move(nodeId: string, parentId: string): Promise<DriveNode> { const node = await this.provider.move(nodeId, parentId); await this.remember(node, { ...this.stateFor(node), remoteRevision: node.revision }); return node; }
-  async trash(nodeId: string): Promise<void> { const state = this.store.getState(nodeId); if (state && UNSAFE_EVICTION.has(state.status)) throw new UnsafeEvictionError(state.status); await this.provider.trash(nodeId); this.store.deleteNode(nodeId); await this.store.save(); this.emit("nodeChanged", nodeId); }
+  private treeNodeIds(nodeId: string): string[] {
+    const ids = [nodeId]; const seen = new Set(ids);
+    for (let index = 0; index < ids.length; index += 1) {
+      for (const child of this.store.getChildren(ids[index]!)) {
+        if (!seen.has(child.id)) { seen.add(child.id); ids.push(child.id); }
+      }
+    }
+    return ids;
+  }
+  private async assertTreeSafe(nodeId: string, operation: string): Promise<void> {
+    for (const id of this.treeNodeIds(nodeId)) {
+      const state = this.store.getState(id);
+      if (!state) continue;
+      if (UNSAFE_EVICTION.has(state.status) || await this.storage.exists(state.stagingPath)) throw new UnsafeMutationError(operation, state.status);
+    }
+  }
+  async rename(nodeId: string, name: string): Promise<DriveNode> {
+    await this.assertTreeSafe(nodeId, "rename");
+    const known = this.store.getNode(nodeId);
+    const node = await this.provider.rename(nodeId, name, known); await this.remember(node, { ...this.stateFor(node), remoteRevision: node.revision }); return node;
+  }
+  async move(nodeId: string, parentId: string): Promise<DriveNode> {
+    if (this.treeNodeIds(nodeId).includes(parentId)) throw new Error("Cannot move a folder into itself or its descendant");
+    await this.assertTreeSafe(nodeId, "move");
+    const known = this.store.getNode(nodeId);
+    const node = await this.provider.move(nodeId, parentId, known); await this.remember(node, { ...this.stateFor(node), remoteRevision: node.revision }); return node;
+  }
+  async trash(nodeId: string): Promise<void> {
+    await this.assertTreeSafe(nodeId, "trash");
+    const node = this.store.getNode(nodeId) ?? await this.getNode(nodeId);
+    const removedIds = this.treeNodeIds(nodeId);
+    const transfer = this.transfers.start(nodeId, "trash", node.name, 0);
+    try {
+      await this.provider.trash(nodeId);
+      for (const id of removedIds) this.store.deleteNode(id);
+      await this.store.save();
+      for (const id of removedIds) this.emit("nodeChanged", id);
+      this.transfers.finish(transfer.id);
+    } catch (error) {
+      this.transfers.fail(transfer.id, error);
+      throw error;
+    }
+  }
+  async resolveConflict(nodeId: string, resolution: "keep-local" | "keep-remote" | "save-both", copyName?: string): Promise<NodeState> {
+    const node = this.store.getNode(nodeId) ?? await this.getNode(nodeId);
+    const state = this.stateFor(node);
+    if (state.status !== "conflict" || !state.stagingPath || !(await this.storage.exists(state.stagingPath))) throw new Error("Node has no resolvable conflict");
+    if (resolution === "keep-local") {
+      const remote = await this.provider.getNode(nodeId);
+      state.baseRevision = remote.revision; state.remoteRevision = remote.revision; state.status = "queued"; state.error = undefined;
+      this.store.setState(state); await this.store.save(); return this.commit(nodeId);
+    }
+    if (resolution === "save-both") {
+      const name = copyName?.trim() || `${node.name} (local conflict ${new Date().toISOString().replaceAll(":", "-")})`;
+      const size = await this.storage.size(state.stagingPath);
+      const created = await this.provider.upload({ parentId: node.parentId ?? "root", name, sourcePath: state.stagingPath, expectedSize: size, modifiedAt: Date.now() });
+      await this.remember(created);
+    }
+    const stagingPath = state.stagingPath; const cachePath = state.cachePath;
+    state.stagingPath = undefined; state.cachePath = undefined; state.baseRevision = undefined; state.status = "cloud-only"; state.error = undefined;
+    const remote = await this.provider.getNode(nodeId); state.remoteRevision = remote.revision; this.store.setNode(remote); this.store.setState(state); await this.store.save(); this.emit("nodeChanged", nodeId);
+    // Persist the stable state before deleting local files. A crash can leave
+    // harmless orphans, but cannot leave state pointing at deleted data.
+    await this.storage.remove(stagingPath); await this.storage.remove(cachePath);
+    if (state.pinned) return this.pin(nodeId, true);
+    return state;
+  }
+  conflicts(): Array<{ nodeId: string; name: string; error?: string }> {
+    return this.store.getStates()
+      .filter(state => state.status === "conflict")
+      .map(state => {
+        const node = this.store.getNode(state.nodeId);
+        return { nodeId: state.nodeId, name: node?.name ?? state.nodeId, error: state.error };
+      });
+  }
+  private async refreshKnownFolders(rootId: string): Promise<void> {
+    const knownNodes = this.store.getNodes();
+    const folderIds = new Set<string>([rootId]);
+    for (const node of knownNodes) {
+      const state = this.store.getState(node.id);
+      if (!state?.pinned) continue;
+      if (node.kind === "folder") folderIds.add(node.id);
+      if (node.parentId) folderIds.add(node.parentId);
+    }
+    for (const parentId of folderIds) {
+      if (parentId !== rootId && !this.store.getNode(parentId)) continue;
+      const seenChildren = new Set<string>();
+      for (const node of await this.provider.listChildren(parentId, "background")) {
+        seenChildren.add(node.id);
+        const previous = this.store.getState(node.id);
+        if (previous && previous.remoteRevision !== node.revision && !UNSAFE_EVICTION.has(previous.status)) {
+          await this.storage.remove(previous.cachePath);
+          previous.cachePath = undefined;
+          previous.status = "cloud-only";
+        }
+        this.store.setNode(node);
+        const state = this.stateFor(node);
+        state.remoteRevision = node.revision;
+        this.store.setState(state);
+      }
+      for (const node of this.store.getChildren(parentId)) {
+        if (seenChildren.has(node.id)) continue;
+        const state = this.store.getState(node.id);
+        if (state && UNSAFE_EVICTION.has(state.status)) continue;
+        await this.storage.remove(state?.cachePath);
+        this.store.deleteNode(node.id);
+        this.emit("nodeChanged", node.id);
+      }
+    }
+    await this.store.save();
+  }
   async processEvents(): Promise<void> {
     for await (const event of this.provider.getEvents(this.store.getLastEventId())) {
       if (event.type === "refresh") {
-        const root=await this.provider.getRoot(); this.store.setNode(root);
-        for (const node of await this.provider.listChildren(root.id)) this.store.setNode(node);
+        const root = await this.provider.getRoot("background");
+        this.store.setNode(root);
+        await this.refreshKnownFolders(root.id);
       } else if (event.type === "trashed") this.store.deleteNode(event.nodeId);
       else if (event.node) { const previous = this.store.getState(event.nodeId); this.store.setNode(event.node); if (previous) { if (previous.pinned && previous.remoteRevision !== event.node.revision && !["dirty", "queued", "uploading", "conflict"].includes(previous.status)) { await this.storage.remove(previous.cachePath); previous.cachePath = undefined; previous.status = "cloud-only"; } previous.remoteRevision = event.node.revision; this.store.setState(previous); } }
       // Proton emits `tree_remove` with eventId="none". It is a refresh
@@ -183,6 +453,9 @@ export class DriveEngine extends EventEmitter {
       if (event.id !== "none") this.store.setLastEventId(event.id);
       await this.store.save(); this.emit("nodeChanged", event.nodeId);
       const state = this.store.getState(event.nodeId); if (state?.pinned && state.status === "cloud-only") await this.pin(event.nodeId, true);
+    }
+    for (const state of this.store.getStates()) {
+      if (state.pinned && state.status === "cloud-only" && this.store.getNode(state.nodeId)?.kind === "file") await this.pin(state.nodeId, true);
     }
   }
   async enforceCacheLimit(maxBytes: number): Promise<number> {
@@ -198,9 +471,38 @@ export class DriveEngine extends EventEmitter {
     }
     return total;
   }
-  async clearDisposableCache(): Promise<{ freedBytes: number; cacheBytes: number }> {
+  async clearDisposableCache(): Promise<{ freedBytes: number; cacheBytes: number; retainedPinnedBytes: number; retainedPinnedFiles: number }> {
     const before = await this.cacheUsage();
     const cacheBytes = await this.enforceCacheLimit(0);
-    return { freedBytes: Math.max(0, before - cacheBytes), cacheBytes };
+    let retainedPinnedBytes = 0; let retainedPinnedFiles = 0;
+    for (const state of this.store.getStates()) {
+      if (!state.pinned || !state.cachePath) continue;
+      try { retainedPinnedBytes += await this.storage.size(state.cachePath); retainedPinnedFiles += 1; } catch {}
+    }
+    return { freedBytes: Math.max(0, before - cacheBytes), cacheBytes, retainedPinnedBytes, retainedPinnedFiles };
+  }
+  async clearPinnedCache(): Promise<{ freedBytes: number; cacheBytes: number; clearedPinnedFiles: number; retainedUnsafeBytes: number; retainedUnsafeFiles: number }> {
+    let freedBytes = 0; let clearedPinnedFiles = 0; let retainedUnsafeBytes = 0; let retainedUnsafeFiles = 0;
+    const changed: string[] = [];
+    for (const state of this.store.getStates()) {
+      if (!state.pinned) continue;
+      const node = this.store.getNode(state.nodeId);
+      const hasUnsafeLocalChanges = UNSAFE_EVICTION.has(state.status) || await this.storage.exists(state.stagingPath);
+      if (hasUnsafeLocalChanges) {
+        if (node?.kind === "file") retainedUnsafeFiles += 1;
+        if (state.cachePath) { try { retainedUnsafeBytes += await this.storage.size(state.cachePath); } catch {} }
+        continue;
+      }
+      if (state.cachePath) {
+        try { freedBytes += await this.storage.size(state.cachePath); } catch {}
+        await this.storage.remove(state.cachePath);
+        if (node?.kind === "file") clearedPinnedFiles += 1;
+      }
+      state.cachePath = undefined; state.pinned = false; state.status = "cloud-only"; state.error = undefined;
+      this.store.setState(state); changed.push(state.nodeId);
+    }
+    await this.store.save();
+    for (const nodeId of changed) this.emit("nodeChanged", nodeId);
+    return { freedBytes, cacheBytes: await this.cacheUsage(), clearedPinnedFiles, retainedUnsafeBytes, retainedUnsafeFiles };
   }
 }

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync, spawn, type ChildProcess } from "node:child_process";
+import { execFileSync, spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { mkdir, mkdtemp, readFile, readdir, rename, rm, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -94,6 +94,10 @@ test("FUSE filesystem supports browse, open, upload, rename, move and delete", {
     await waitForMount(mount);
 
     assert.deepEqual((await readdir(mount)).sort(), ["Documents"]);
+    assert.match(await readFile(join(mount, "Documents/Welcome.txt"), "utf8"), /fake provider/);
+    const genericTrash = spawnSync("gio", ["trash", join(mount, "Documents/Welcome.txt")], { encoding: "utf8" });
+    assert.notEqual(genericTrash.status, 0);
+    assert.doesNotMatch((await readdir(mount)).join("\n"), /^\.Trash(?:-|$)/m);
     assert.match(await readFile(join(mount, "Documents/Welcome.txt"), "utf8"), /fake provider/);
 
     await writeFile(join(mount, "Documents/upload.txt"), "uploaded through FUSE\n", "utf8");

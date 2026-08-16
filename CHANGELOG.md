@@ -1,5 +1,52 @@
 # Changelog
 
+## 0.3.0-alpha.2
+
+- Drop the rotating text-glyph spinner from the cache-clear buttons; the glyph is absent from the bar font and orbited instead of spinning, so the running state is shown by the status line below.
+- Remove stale user-directory Nautilus extension copies on install and uninstall so the context menu cannot register twice.
+- Show conflicts in the bar popup with keep-local, keep-remote and save-both actions, and notify once per new conflict (without exposing filenames) through the system notifications plugin.
+- Report transfer progress honestly: the CLI provider is marked as not progress-capable, so its transfers render as indeterminate instead of a frozen bar, and queued uploads are explicit.
+- Allow cancelling a queued or running upload from the bar popup; staged bytes stay recoverable and the node returns to a dirty, re-uploadable state.
+- Remove the artificial 2.5 s delay after cache clearing; the completion message appears as soon as the process exits.
+
+- Reuse fresh folder metadata before downloads and recursive pinning, cache repeated FUSE directory access, and suppress duplicate Nautilus thumbnail bookkeeping.
+- Reuse prepared SQLite statements and remove repeated permission syscalls from the transaction hot path while retaining private database/WAL modes.
+
+## 0.3.0-alpha.1
+
+- Enable real-account create, edit, rename, move and trash operations through the official CLI.
+- Guard staged edits with a remote revision check and preserve local conflicts.
+- Keep local staging recoverable across offline periods and daemon restarts.
+- Migrate metadata and recovery state from JSON to private transactional SQLite with automatic legacy migration.
+- Add recursive folder pinning and explicit keep-local, keep-remote and save-both conflict resolution.
+- Add versioned daemon/API compatibility checks and bounded IPC/provider operations.
+- Return known folder metadata immediately from SQLite, deduplicate concurrent listings and prefetch direct subfolders with bounded concurrency.
+- Prevent Nautilus thumbnail generation from materialising cloud-only files and reserve synchronization emblems for real transfer/queued states.
+- Limit periodic CLI metadata refresh to the root and pinned trees instead of rescanning every previously visited folder.
+- Show explicit cache-clear progress and completion feedback, including bytes intentionally retained for offline files, and perform safe cache eviction without remote metadata round trips.
+- Add a separate safe action for removing “Always available” local copies and a panel link that opens the last 24 hours of plugin logs.
+- Keep newly written files immediately readable while their background upload is queued or active, without stale FUSE writeback data.
+- Block rename, move and recursive trash whenever the affected tree contains staged, queued, uploading or conflicted data.
+- Make conflict finalisation crash-safe by persisting the resolved state before removing staging and cache files.
+- Classify revoked and expired sessions as authentication-required, redact raw CLI failures and treat rate limiting as retryable.
+- Add a real session D-Bus integration test and deterministic release-archive/checksum preparation.
+- Build Proton CLI completely before changing the installed package and replace the verified binary atomically.
+- Use the popup foreground colour for the logs hyperlink so it remains legible on light and dark themes.
+- Open generated logs in the editor selected by Omarchy instead of relying on MIME detection and a browser fallback.
+- Match the bar popup and Nautilus actions to the session language (Polish or English), and remove the empty status-message gap above sign out.
+- Serialize official CLI commands, disable real-account folder prefetch by default, defer and reduce background refreshes, reject Nautilus' generic `.Trash-*` emulation, route deletions to the native Proton trash, and expose deletion progress in the bar.
+- Make SQLite persistence incremental and index roots, children and names in memory instead of repeatedly scanning or rewriting the full cached tree.
+- Cache directory handles in FUSE, add direct child lookup, restore CLI paths from SQLite after restart and prioritize clicked operations over queued maintenance work.
+- Serve Nautilus status emblems from FUSE metadata instead of opening one daemon connection per visible file, cache account status, and avoid account checks while mounting.
+- Keep newly created files locally cached immediately and reuse known metadata during downloads, writes, uploads, renames and moves to eliminate redundant CLI calls.
+
+## 0.2.0-alpha.2
+
+- Recover stale FUSE endpoints automatically across logout, login and service restart.
+- Keep Nautilus from crashing the mount while querying extended attributes.
+- Show an animated loading state during integration startup and recovery instead of a transient error.
+- Clear stale integration errors immediately when login or logout begins.
+
 ## 0.2.0-alpha.1
 
 - Added browser-based real-account login through Proton's official CLI with sessions stored in the OS secret service.

@@ -122,15 +122,20 @@ test("daemon RPC smoke test uses the real process and private XDG state", async 
   assert.equal(status.provider, "fake");
   assert.equal(status.account, null);
   assert.equal(status.connectionError, "");
-  assert.equal(status.version, "0.2.0-alpha.1");
+  assert.equal(status.version, "0.3.0-alpha.2");
+  assert.equal(status.apiVersion, 1);
   assert.equal(typeof status.checkedAt, "number");
   assert.equal(typeof status.cacheBytes, "number");
   assert.deepEqual(status.transfers, []);
+  assert.deepEqual(status.conflicts, []);
 
   const rootNode = await rpc(socketPath, "GetRoot");
   assert.equal(rootNode.name, "Proton Drive");
   const children = await rpc(socketPath, "ListChildren", { nodeId: "docs" });
   assert.deepEqual(children.map((node: { name: string }) => node.name), ["Welcome.txt"]);
+  assert.equal(children[0].localStatus, "cloud-only");
+  const lookedUp = await rpc(socketPath, "LookupChild", { parentId: "docs", name: "Welcome.txt" });
+  assert.equal(lookedUp.id, "welcome");
 
   const materialized = await rpc(socketPath, "Materialize", { nodeId: "welcome" });
   assert.match(await readFile(materialized.path, "utf8"), /fake provider/);
@@ -155,6 +160,10 @@ test("RPC write commits through persistent staging and emits Watch transfer even
   assert.equal(status.status, "cached");
   assert.ok(watch.events.some(event => event.event === "TransferChanged" && event.data.direction === "upload"));
   watch.close();
+});
+
+test("CancelTransfer rejects unknown transfers over RPC", async () => {
+  await assert.rejects(rpc(socketPath, "CancelTransfer", { transferId: "no-such-transfer" }), /Unknown transfer/);
 });
 
 test("daemon restart preserves a dirty staged write", async () => {

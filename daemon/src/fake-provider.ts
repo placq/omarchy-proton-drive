@@ -66,7 +66,9 @@ export class FakeDriveProvider implements DriveProvider {
   async readBytes(nodeId: string): Promise<Uint8Array> { const item = this.entry(nodeId); if (!item.bytes) throw new Error("Not a file"); return Uint8Array.from(item.bytes); }
   async upload(input: UploadInput): Promise<DriveNode> {
     this.assertOnline(); this.entry(input.parentId);
+    if (input.signal?.aborted) throw new Error("Upload cancelled");
     const bytes = new Uint8Array(await readFile(input.sourcePath));
+    if (input.signal?.aborted) throw new Error("Upload cancelled");
     if (input.nodeId) {
       const item = this.entry(input.nodeId);
       if (input.expectedRevision !== undefined && input.expectedRevision !== item.node.revision) throw new ConflictError();
@@ -88,9 +90,18 @@ export class FakeDriveProvider implements DriveProvider {
   async move(nodeId: string, parentId: string): Promise<DriveNode> {
     this.assertOnline(); this.entry(parentId); const item = this.entry(nodeId); item.node = { ...item.node, parentId, revision: this.revision(item.node.revision), modifiedAt: Date.now() }; this.emit("moved", item.node); return structuredClone(item.node);
   }
-  async trash(nodeId: string): Promise<void> { this.assertOnline(); const item = this.entry(nodeId); item.trashed = true; this.emit("trashed", item.node); }
+  async trash(nodeId: string): Promise<void> {
+    this.assertOnline(); const item = this.entry(nodeId); const ids = [nodeId];
+    for (let index = 0; index < ids.length; index += 1) {
+      for (const [id, child] of this.entries) if (!child.trashed && child.node.parentId === ids[index]) ids.push(id);
+    }
+    for (const id of ids) this.entries.get(id)!.trashed = true;
+    this.emit("trashed", item.node);
+  }
   async *getEvents(afterId?: string): AsyncIterable<DriveEvent> {
     this.assertOnline(); const after = Number(afterId ?? 0);
-    for (const event of this.events) if (Number(event.id) > after) yield structuredClone(event);
+    for (const event of this.events) {
+      if (event.id === "none" || Number(event.id) > after) yield structuredClone(event);
+    }
   }
 }

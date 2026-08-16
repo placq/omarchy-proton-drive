@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+output="${HOME}/.local/bin/proton-drive"
+if [[ ${1:-} == --output && -n ${2:-} && -z ${3:-} ]]; then
+  output=$2
+elif [[ -n ${1:-} ]]; then
+  printf 'Usage: %s [--output PATH]\n' "$0" >&2
+  exit 2
+fi
+
 upstream="https://github.com/ProtonDriveApps/sdk.git"
 commit="5491f2eea473acaaa86b5969774b84610a37bd46"
 project_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -21,9 +29,9 @@ git -C "$build_dir" apply "$project_dir/patches/proton-cli-account-info.patch"
   ln -s cli/node_modules "$build_dir/node_modules"
   bun add --no-save @xmldom/xmldom@0.9.10 exifreader@4.39.1
   CLI_APP_VERSION_NAME=external-drive-omarchy_drive \
-    CLI_VERSION=0.2.0-alpha.1 JS_VERSION=0.21.0 bun run build
+    CLI_VERSION=0.3.0-alpha.2 JS_VERSION=0.21.0 bun run build
 )
 
-install -Dm755 "$build_dir/cli/release/proton-drive" "$HOME/.local/bin/proton-drive"
-printf 'Installed %s\n' "$HOME/.local/bin/proton-drive"
-"$HOME/.local/bin/proton-drive" version
+install -Dm755 "$build_dir/cli/release/proton-drive" "$output"
+printf 'Built %s\n' "$output"
+"$output" version

@@ -11,6 +11,8 @@ export interface AccountInfo {
   totalBytes: number;
 }
 
+export type RequestPriority = "interactive" | "background";
+
 export interface UploadInput {
   parentId: string;
   nodeId?: string;
@@ -19,20 +21,27 @@ export interface UploadInput {
   expectedSize: number;
   expectedRevision?: string;
   modifiedAt: number;
+  knownRemote?: DriveNode;
   onProgress?: (done: number, total: number) => void;
+  signal?: AbortSignal;
 }
 
 export interface DriveProvider {
   readonly kind: "fake" | "proton-sdk" | "proton-cli";
-  getAccountInfo?(): Promise<AccountInfo | null>;
-  getRoot(): Promise<DriveNode>;
+  // Providers that only report progress on completion (for example the
+  // process-based CLI) expose transfers as indeterminate instead of showing
+  // a frozen progress bar.
+  readonly progressSupported?: boolean;
+  primeNodes?(nodes: DriveNode[]): void;
+  getAccountInfo?(priority?: RequestPriority): Promise<AccountInfo | null>;
+  getRoot(priority?: RequestPriority): Promise<DriveNode>;
   getNode(nodeId: string): Promise<DriveNode>;
-  listChildren(parentId: string): Promise<DriveNode[]>;
-  downloadToPath(nodeId: string, targetPath: string, onProgress?: (done: number, total: number) => void): Promise<DownloadResult>;
+  listChildren(parentId: string, priority?: RequestPriority): Promise<DriveNode[]>;
+  downloadToPath(nodeId: string, targetPath: string, onProgress?: (done: number, total: number) => void, knownNode?: DriveNode): Promise<DownloadResult>;
   upload(input: UploadInput): Promise<DriveNode>;
   createFolder(parentId: string, name: string): Promise<DriveNode>;
-  rename(nodeId: string, name: string): Promise<DriveNode>;
-  move(nodeId: string, parentId: string): Promise<DriveNode>;
+  rename(nodeId: string, name: string, knownNode?: DriveNode): Promise<DriveNode>;
+  move(nodeId: string, parentId: string, knownNode?: DriveNode): Promise<DriveNode>;
   trash(nodeId: string): Promise<void>;
   getEvents(afterId?: string): AsyncIterable<DriveEvent>;
 }

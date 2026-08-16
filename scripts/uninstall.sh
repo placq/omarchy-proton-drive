@@ -1,14 +1,34 @@
 #!/usr/bin/env bash
 set -euo pipefail
-state_file="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-drive/state.json"
-if [[ -f $state_file ]]; then
-  unsafe=$(python3 - "$state_file" <<'PY'
-import json,sys
-d=json.load(open(sys.argv[1])); bad=[s for s in d.get('states',{}).values() if s.get('status') in {'dirty','queued','uploading','conflict'}]
-print(len(bad))
+remove_cache=false
+if [[ ${1:-} == --remove-cache ]]; then remove_cache=true; elif [[ ${1:-} != "" ]]; then printf 'Usage: %s [--remove-cache]\n' "$0" >&2; exit 2; fi
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-drive"
+shopt -s nullglob
+state_files=("$state_dir"/state*.json "$state_dir"/state*.sqlite)
+if ((${#state_files[@]})); then
+  if ! unsafe=$(python3 - "${state_files[@]}" <<'PY'
+import json, sqlite3, sys
+
+unsafe = []
+for path in sys.argv[1:]:
+    if path.endswith('.sqlite'):
+        connection = sqlite3.connect(f'file:{path}?mode=ro', uri=True)
+        try:
+            rows = connection.execute('SELECT json FROM states').fetchall()
+            states = [json.loads(row[0]) for row in rows]
+        finally:
+            connection.close()
+    else:
+        with open(path, encoding='utf-8') as stream:
+            states = json.load(stream).get('states', {}).values()
+    unsafe.extend(state for state in states if state.get('status') in {'dirty', 'queued', 'uploading', 'conflict'} or state.get('stagingPath'))
+print(len(unsafe))
 PY
-)
-  if ((unsafe)); then printf 'Cannot safely remove integration: %s file(s) contain unsynced or conflict data in %s\n' "$unsafe" "$state_file" >&2; exit 2; fi
+  ); then
+    printf 'Cannot verify local state in %s; refusing unsafe uninstall.\n' "$state_dir" >&2
+    exit 2
+  fi
+  if ((unsafe)); then printf 'Cannot safely remove integration: %s file(s) contain unsynced or conflict data in %s\n' "$unsafe" "$state_dir" >&2; exit 2; fi
 fi
 systemctl --user disable --now omarchy-drive-mount.service omarchy-drive-dbus.service omarchy-drive.service 2>/dev/null || true
 plugin_dir="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/plugins/placq.proton-drive"
@@ -22,6 +42,12 @@ if [[ -f $bookmark_file ]]; then
   mv -- "$tmp_bookmarks" "$bookmark_file"
 fi
 rm -f -- "${XDG_CONFIG_HOME:-$HOME/.config}/omarchy-drive/environment"
+rm -f -- "${XDG_DATA_HOME:-$HOME/.local/share}/nautilus-python/extensions/omarchy_drive.py" \
+  "${XDG_DATA_HOME:-$HOME/.local/share}/nautilus-python/extensions/drive_logic.py"
 rmdir --ignore-fail-on-non-empty "${XDG_CONFIG_HOME:-$HOME/.config}/omarchy-drive" 2>/dev/null || true
+if $remove_cache; then
+  cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/omarchy-drive"
+  if [[ $cache_dir == */omarchy-drive && -d $cache_dir ]]; then rm -rf -- "$cache_dir"; fi
+fi
 printf 'Integration files, services and sidebar bookmark removed. Persistent state/staging were preserved; remote Proton Drive data was not touched.\n'
 printf 'The package can now be removed with: sudo pacman -Rns omarchy-drive\n'

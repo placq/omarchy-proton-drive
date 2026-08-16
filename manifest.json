@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "placq.proton-drive",
   "name": "Proton Drive for Omarchy",
-  "version": "0.2.0-alpha.1",
+  "version": "0.3.0-alpha.2",
   "author": "placq",
   "description": "Unofficial Proton Drive integration for Omarchy Files",
   "kinds": ["service", "bar-widget"],

@@ -1,22 +1,21 @@
 # Development roadmap
 
-This roadmap takes Proton Drive for Omarchy from the current read-only real-account developer preview to a safely installable, conflict-safe release. Work moves to the next phase only when the previous phase's exit criteria are met.
+This roadmap records the path from the original read-only preview to the current conflict-safe read/write alpha and its remaining publication gates.
 
 ## Current baseline
 
 - The provider-independent writable fake engine, persistent staging, cache, conflict protection and background retry logic are implemented.
 - FUSE3, Nautilus, Quattro QML, D-Bus and systemd adapters run together on Omarchy Quattro.
 - Browser login, OS-secret session storage, account identity, storage quota, real browsing and on-demand downloads work through a CLI built from pinned official Proton source.
-- Real accounts are deliberately read-only; FUSE returns `EROFS` for every mutation until conflict-safe revision preconditions are available.
+- Real accounts support guarded writes through the official CLI; FUSE mutations use persistent staging and the engine's revision check before the CLI's `create-new-revision` upload strategy.
 - The technical FUSE mount is hidden from Nautilus while one persistent **Proton Drive** sidebar bookmark remains.
-- Automated baseline: 30 tests, TypeScript typecheck, Python/shell syntax checks, plugin validation and installed-system diagnostics pass.
+- Automated baseline: 61 tests, a live isolated session D-Bus test, TypeScript typecheck, Python/shell syntax checks, plugin validation, dependency audit and installed-system diagnostics pass.
 
 ## Milestone status
 
-- Phases 1 and 3 are substantially complete on the development workstation.
-- Phase 2 hardening is partially complete; SQLite migration, bounded cancellation and broader fault injection remain.
-- Phase 4 is satisfied only through the isolated official CLI boundary, not a directly constructed SDK client.
-- Phases 5 and 6 remain blocked on clean-machine acceptance and conflict-safe real writes.
+- Phases 1–4 are implemented for the selected official-CLI architecture. SQLite migration, private WAL, bounded operations, recursive pinning and explicit conflict resolution are complete.
+- Phase 5 automated, read-only, reboot and core disposable real-account write/conflict paths pass. Offline-reboot-reconnect and manual revoked-session scenarios remain publication gates.
+- Phase 6 has a local Arch package, prebuilt/atomically replaced CLI, a deterministic release archive/checksum generator, compatibility checks and safe uninstall; publishing the generated artifacts and clean-machine update/failure testing remain release work.
 
 ## Phase 1 — Quattro system validation with the fake provider
 
@@ -67,14 +66,14 @@ Goal: prove that the existing components work together on a disposable Omarchy Q
 
 Goal: address system-test findings and make the provider-independent layer robust enough for real data.
 
-- Replace JSON metadata/state persistence with an application-owned SQLite schema and atomic migrations; staging content remains ordinary private files.
-- Define and test recovery for disk-full, read-only filesystem, corrupt state, missing staging, process kill and interrupted rename cases.
-- Add bounded timeouts and cancellation for RPC, D-Bus and provider operations.
+- [x] Replace JSON metadata/state persistence with an application-owned SQLite schema and atomic legacy migration; staging content remains ordinary private files.
+- [x] Recover interrupted upload/download, missing staging and corrupt state without silently resetting or discarding local data.
+- [x] Add bounded timeouts for RPC, D-Bus and provider operations.
 - Verify long names, invalid UTF-8 boundaries exposed by FUSE, Unicode normalisation and symlink rejection.
-- Add recursive folder pinning with resumable traversal and visible progress.
-- Add explicit conflict-resolution operations while preserving the current never-overwrite default.
-- Make D-Bus the stable desktop API and document its versioned contract; retain the private Unix protocol as an internal transport only.
-- Add runtime integration tests for the Unix socket, D-Bus bridge and a disposable FUSE mount.
+- [x] Add recursive folder pinning; transfers expose download progress through the existing event stream.
+- [x] Add explicit conflict-resolution operations while preserving the current never-overwrite default.
+- [x] Make D-Bus the stable desktop API and document its versioned contract; retain the private Unix protocol as an internal transport only.
+- [x] Add runtime integration tests for the Unix socket, D-Bus bridge and a disposable FUSE mount (FUSE is capability-gated where mounting is unavailable).
 
 ### Exit criteria
 
@@ -101,19 +100,19 @@ Goal: choose a supportable authentication path before implementing or exposing l
 
 ## Phase 4 — Real Proton client and event engine
 
-Goal: construct `ProtonDriveClient` directly and connect the existing engine to a real account.
+Goal: connect the existing engine to a supported real-account boundary. The decision gate selected a CLI built from pinned official Proton source because the account/auth package needed for direct SDK construction is not published independently.
 
-- Implement `AuthBootstrap`, secure session restore and explicit disconnect.
-- Construct the SDK client with authenticated HTTP, account/address, crypto, SRP, SDK cache and event-cursor dependencies.
+- Build and identify the official CLI from an exact reviewed upstream commit.
+- Keep browser authentication, session restore, refresh, account crypto and logout inside that boundary and the OS secret service.
 - Identify requests as `external-drive-omarchy_drive@<version>-<channel>` without impersonating a first-party client.
-- Hydrate owned volume roots once, then process Drive events and cursors without recursive polling.
-- Add SDK scheduler integration, bounded concurrency, rate-limit handling and exponential backoff.
+- Hydrate owned volume roots and refresh metadata through the provider boundary; keep the direct SDK/event adapter tested for future migration.
+- Add bounded provider execution and background retry for queued writes.
 - Expose authenticated, expired-session, storage-usage and auth-required states through D-Bus and Quattro.
 
 ### Exit criteria
 
 - Login, session restore, refresh, expiration and logout work on the dedicated account.
-- List, download, upload, rename, move, trash and events use the SDK directly—never the CLI.
+- List, download, upload, rename, move and trash use the pinned official CLI boundary; project code never handles account secrets.
 - Revoked or expired sessions fail cleanly without hanging the filesystem or losing staging.
 
 ## Phase 5 — Real-account integration and data-safety testing
@@ -137,11 +136,11 @@ Goal: validate the complete data path with disposable test data before any perso
 
 Goal: replace the source-checkout installer with a repeatable end-user installation and update path.
 
-- Build versioned release archives and replace the local-development `PKGBUILD` source layout with a release URL and verified checksum.
-- Make **Install integration** perform an explicit, visible package installation followed by service reload/start and health verification.
+- [x] Add deterministic versioned release archive and checksummed release-`PKGBUILD` generation; publishing and clean-machine verification remain required.
+- Keep native package installation as an explicit reviewed terminal step outside the unsandboxed QML plugin; follow it with service reload/start and health verification.
 - Make installation and updates idempotent and preserve the session, pin metadata, staging and conflict copies.
 - Add compatibility checks between plugin version, daemon version and IPC API version.
-- Add rollback behavior for failed updates.
+- Build and verify Proton CLI before package mutation and replace it atomically; complete native-package rollback testing on the clean machine.
 - Make uninstall offer cache removal separately and refuse removal of unsafe local state.
 - Test installation, update and uninstall from a clean Quattro machine with no source checkout.
 
@@ -166,8 +165,7 @@ Goal: publish an honest, supportable alpha after all safety gates pass.
 | Target | Scope | Gate |
 |---|---|---|
 | `0.1.0-alpha.2` | Quattro fake-provider validation fixes | Phases 1–2 |
-| `0.2.0-alpha.1` | Secure read-only real-account developer preview | Current checkpoint |
-| `0.3.0-alpha.1` | End-user package and update flow | Phase 6 |
+| `0.3.0-alpha.2` | Nautilus/FUSE performance and real-account read/write integration | Current checkpoint; offline/revoked-session and published-package gates pending |
 | Marketplace alpha | Public discoverability | Phase 7 |
 
 ## Deferred until after the first marketplace alpha
@@ -182,7 +180,7 @@ Goal: publish an honest, supportable alpha after all safety gates pass.
 
 ## Immediate next session
 
-1. Reboot the current workstation and verify service startup, session restore, the bar panel, the single Nautilus bookmark and on-demand file opening.
-2. Exercise fresh login, logout, re-login, revoked session, network loss and recovery on the dedicated test account.
-3. Install `0.2.0-alpha.1` on a clean disposable Omarchy Quattro system without relying on existing user state.
-4. Record results in `INSTALLATION-TEST.md` and `TEST-STATUS.md` before starting writable real-account work.
+1. Exercise offline edit → reboot → reconnect, interrupted transfers, rate limiting and remote session revocation on the dedicated account.
+2. Complete manual Nautilus drag-and-drop, desktop-application save and hostile-name/FUSE boundary checks.
+3. Record exact clean-machine component versions.
+4. Commit and tag the release, generate/upload the versioned archive and checksum, then test install/update/failure recovery without a source checkout.

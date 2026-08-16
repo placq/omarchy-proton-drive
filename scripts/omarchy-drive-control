@@ -7,7 +7,7 @@ SOCKET = os.environ.get("OMARCHY_DRIVE_SOCKET", f"{os.environ.get('XDG_RUNTIME_D
 def call(method, **params):
     req=(json.dumps({"id":1,"method":method,"params":params})+"\n").encode()
     with socket.socket(socket.AF_UNIX) as conn:
-        conn.settimeout(5); conn.connect(SOCKET); conn.sendall(req); data=b""
+        conn.settimeout(5 * 60); conn.connect(SOCKET); conn.sendall(req); data=b""
         while b"\n" not in data: data += conn.recv(65536)
     response=json.loads(data.split(b"\n",1)[0])
     if "error" in response: raise RuntimeError(response["error"]["message"])
@@ -15,11 +15,14 @@ def call(method, **params):
 
 def main():
     p=argparse.ArgumentParser(); sub=p.add_subparsers(dest="command", required=True)
-    sub.add_parser("status"); sub.add_parser("transfers"); sub.add_parser("sync"); sub.add_parser("watch"); sub.add_parser("clear-cache")
+    sub.add_parser("status"); sub.add_parser("transfers"); sub.add_parser("sync"); sub.add_parser("watch"); sub.add_parser("clear-cache"); sub.add_parser("clear-pinned-cache"); sub.add_parser("logs")
     sub.add_parser("login"); sub.add_parser("logout")
     open_p=sub.add_parser("open"); open_p.add_argument("path", nargs="?")
     for name in ["pin","unpin","evict","retry","node-status"]:
         q=sub.add_parser(name); q.add_argument("node_id")
+    for name in ["conflict-keep-local", "conflict-keep-remote", "conflict-save-both"]:
+        q=sub.add_parser(name); q.add_argument("node_id"); q.add_argument("--name", default="")
+    cancel_p=sub.add_parser("cancel-transfer"); cancel_p.add_argument("transfer_id")
     a=p.parse_args()
     if a.command in {"login", "logout"}:
         cli=os.environ.get("OMARCHY_DRIVE_CLI", str(Path.home()/".local/bin/proton-drive"))
@@ -33,15 +36,40 @@ def main():
             conn.connect(SOCKET); conn.sendall(req); stream=conn.makefile("r")
             for line in stream: print(line, end="", flush=True)
         return
+    if a.command == "logs":
+        log_dir=Path(os.environ.get("XDG_CACHE_HOME", str(Path.home()/".cache")))/"omarchy-drive"/"logs"
+        log_dir.mkdir(parents=True, exist_ok=True, mode=0o700); log_path=log_dir/"omarchy-drive.log"
+        units=["omarchy-drive.service", "omarchy-drive-dbus.service", "omarchy-drive-mount.service"]
+        journal_command=["journalctl", "--user", "--since", "24 hours ago", "--no-pager", "-o", "short-iso"]
+        for unit in units: journal_command.extend(["-u", unit])
+        service_log=subprocess.run(journal_command, capture_output=True, text=True, check=False).stdout
+        shell_log=subprocess.run(["journalctl", "--user", "--since", "24 hours ago", "--no-pager", "-o", "short-iso"], capture_output=True, text=True, check=False).stdout
+        markers=("placq.proton-drive", "proton drive", "barwidget.qml", "service.qml")
+        plugin_lines="\n".join(line for line in shell_log.splitlines() if any(marker in line.lower() for marker in markers))
+        log_path.write_text("Proton Drive for Omarchy — last 24 hours\n\nSERVICES\n"+service_log+"\nPLUGIN UI\n"+plugin_lines+"\n", encoding="utf-8")
+        log_path.chmod(0o600)
+        subprocess.Popen(
+            ["omarchy", "launch", "editor", str(log_path)],
+            start_new_session=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        print(json.dumps({"opened":str(log_path)}, ensure_ascii=False)); return
     if a.command == "status": result=call("GetStatus")
     elif a.command == "transfers": result=call("GetTransfers")
     elif a.command == "sync": result=call("Sync")
     elif a.command == "clear-cache": result=call("ClearCache")
+    elif a.command == "clear-pinned-cache": result=call("ClearPinnedCache")
     elif a.command == "pin": result=call("SetPinned", nodeId=a.node_id, pinned=True)
     elif a.command == "unpin": result=call("SetPinned", nodeId=a.node_id, pinned=False)
     elif a.command == "evict": result=call("Evict", nodeId=a.node_id)
     elif a.command == "retry": result=call("Retry", nodeId=a.node_id)
     elif a.command == "node-status": result=call("GetNodeStatus", nodeId=a.node_id)
+    elif a.command == "cancel-transfer": result=call("CancelTransfer", transferId=a.transfer_id)
+    elif a.command.startswith("conflict-"):
+        resolution=a.command.removeprefix("conflict-"); params={"nodeId":a.node_id, "resolution":resolution}
+        if a.name: params["copyName"]=a.name
+        result=call("ResolveConflict", **params)
     elif a.command == "open":
         mount=a.path or os.environ.get("OMARCHY_DRIVE_MOUNT", str(Path.home()/".local/share/omarchy-drive/mount")); subprocess.Popen(["nautilus", mount], start_new_session=True); result={"opened":mount}
     print(json.dumps(result, ensure_ascii=False))

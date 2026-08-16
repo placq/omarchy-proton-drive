@@ -5,8 +5,11 @@ Requires=omarchy-drive.service
 
 [Service]
 Type=simple
+# Nautilus can keep the old FUSE endpoint open after logout.  Clean up a
+# stale endpoint before starting a new session so login/retry can recover.
+ExecStartPre=-/usr/bin/fusermount3 -uz "%h/.local/share/omarchy-drive/mount"
 ExecStart=/usr/lib/omarchy-drive/filesystem/fuse/omarchy-drive-fuse.py "%h/.local/share/omarchy-drive/mount" --socket %t/omarchy-drive.sock
-ExecStop=/usr/bin/fusermount3 -u "%h/.local/share/omarchy-drive/mount"
+ExecStop=-/usr/bin/fusermount3 -uz "%h/.local/share/omarchy-drive/mount"
 Restart=on-failure
 RestartSec=5
 

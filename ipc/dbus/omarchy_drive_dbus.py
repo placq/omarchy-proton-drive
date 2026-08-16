@@ -15,7 +15,7 @@ MOUNT_PATH = Path(os.environ.get("OMARCHY_DRIVE_MOUNT", str(Path.home() / ".loca
 def rpc(method_name: str, **params):
     request=(json.dumps({"id":1,"method":method_name,"params":params})+"\n").encode()
     with socket.socket(socket.AF_UNIX) as connection:
-        connection.settimeout(30); connection.connect(SOCKET_PATH); connection.sendall(request); data=b""
+        connection.settimeout(5 * 60); connection.connect(SOCKET_PATH); connection.sendall(request); data=b""
         while b"\n" not in data:
             part=connection.recv(65536)
             if not part: break
@@ -41,9 +41,18 @@ class OmarchyDriveInterface(ServiceInterface):
     @method()
     async def Retry(self, node_id: 's') -> 's': return await self._json("Retry", nodeId=node_id)
     @method()
+    async def ResolveConflict(self, node_id: 's', resolution: 's', copy_name: 's') -> 's':
+        params={"nodeId":node_id, "resolution":resolution}
+        if copy_name: params["copyName"]=copy_name
+        return json.dumps(await asyncio.to_thread(rpc, "ResolveConflict", **params), ensure_ascii=False)
+    @method()
     async def GetTransfers(self) -> 's': return await self._json("GetTransfers")
     @method()
+    async def CancelTransfer(self, transfer_id: 's') -> 's': return await self._json("CancelTransfer", transferId=transfer_id)
+    @method()
     async def ClearCache(self) -> 's': return await self._json("ClearCache")
+    @method()
+    async def ClearPinnedCache(self) -> 's': return await self._json("ClearPinnedCache")
     @method()
     def OpenDrive(self) -> 'b':
         subprocess.Popen(["nautilus", str(MOUNT_PATH)], start_new_session=True); return True
@@ -66,7 +75,9 @@ async def forward_events(interface: OmarchyDriveInterface):
             writer.write((json.dumps({"id":1,"method":"Watch","params":{}})+"\n").encode()); await writer.drain()
             while line := await reader.readline():
                 message=json.loads(line); event=message.get("event"); data=message.get("data") or {}
-                if event == "Status": interface.ConnectionChanged(bool(data.get("connected")))
+                if event == "Status":
+                    interface.ConnectionChanged(bool(data.get("connected")))
+                    if not data.get("authenticated", False): interface.AuthRequired()
                 elif event == "NodeChanged":
                     node_id=str(data.get("nodeId", "")); interface.NodeChanged(node_id)
                     try:

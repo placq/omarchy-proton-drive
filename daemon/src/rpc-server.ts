@@ -2,6 +2,8 @@ import { createServer, type Socket } from "node:net";
 import { chmod, mkdir, unlink } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { DriveEngine } from "./engine.ts";
+import { AuthenticationRequiredError } from "./domain.ts";
+import type { AccountInfo, RequestPriority } from "./provider.ts";
 
 interface Request { id: string | number; method: string; params?: Record<string, unknown>; }
 
@@ -10,6 +12,8 @@ interface Request { id: string | number; method: string; params?: Record<string,
 // remain forbidden.
 const SAFE_ID = /^[A-Za-z0-9._~=-]+$/;
 const MAX_NAME_LENGTH = 255;
+const RPC_TIMEOUT_MS = Math.max(1_000, Number(process.env.OMARCHY_DRIVE_RPC_TIMEOUT_MS ?? 5 * 60_000));
+const ACCOUNT_TTL_MS = Math.max(10_000, Number(process.env.OMARCHY_DRIVE_ACCOUNT_TTL_MS ?? 5 * 60_000));
 
 function requiredId(value: unknown, field: string): string {
   if (typeof value !== "string" || !SAFE_ID.test(value)) throw new Error(`Invalid ${field}`);
@@ -17,18 +21,52 @@ function requiredId(value: unknown, field: string): string {
 }
 
 function requiredName(value: unknown): string {
-  if (typeof value !== "string" || value.length === 0 || value.length > MAX_NAME_LENGTH || value.includes("\0") || value === "." || value === ".." || value.includes("/")) {
+  if (typeof value !== "string") throw new Error("Invalid node name");
+  const normalized = value.normalize("NFC");
+  if (normalized.length === 0 || Buffer.byteLength(normalized, "utf8") > MAX_NAME_LENGTH || normalized.includes("\0") || normalized === "." || normalized === ".." || normalized.includes("/") || /[\uD800-\uDFFF]/u.test(normalized)) {
     throw new Error("Invalid node name");
   }
-  return value;
+  return normalized;
+}
+
+function conflictResolution(value: unknown): "keep-local" | "keep-remote" | "save-both" {
+  if (value === "keep-local" || value === "keep-remote" || value === "save-both") return value;
+  throw new Error("Invalid conflict resolution");
 }
 
 export class RpcServer {
   readonly engine: DriveEngine;
   readonly socketPath: string;
+  private account: AccountInfo | null = null;
+  private accountConnectionError = "";
+  private accountCheckedAt = 0;
+  private accountRefresh?: Promise<void>;
   constructor(engine: DriveEngine, socketPath: string) {
     this.engine = engine;
     this.socketPath = socketPath;
+  }
+  private async refreshAccount(priority: RequestPriority): Promise<void> {
+    if (!this.engine.provider.getAccountInfo) {
+      this.account = null; this.accountConnectionError = ""; this.accountCheckedAt = Date.now(); return;
+    }
+    if (this.accountRefresh) return this.accountRefresh;
+    this.accountRefresh = (async () => {
+      try {
+        this.account = await this.engine.provider.getAccountInfo!(priority);
+        this.accountConnectionError = "";
+      } catch (error) {
+        this.account = null;
+        this.accountConnectionError = error instanceof AuthenticationRequiredError ? "" : "Nie udało się połączyć z Proton Drive.";
+      } finally {
+        this.accountCheckedAt = Date.now();
+      }
+    })().finally(() => { this.accountRefresh = undefined; });
+    return this.accountRefresh;
+  }
+  private async accountStatus(): Promise<{ account: AccountInfo | null; connectionError: string; checkedAt: number }> {
+    if (this.accountCheckedAt === 0) await this.refreshAccount("interactive");
+    else if (Date.now() - this.accountCheckedAt >= ACCOUNT_TTL_MS) void this.refreshAccount("background");
+    return { account: this.account, connectionError: this.accountConnectionError, checkedAt: this.accountCheckedAt };
   }
   async listen(): Promise<void> {
     await mkdir(dirname(this.socketPath), { recursive: true, mode: 0o700 });
@@ -71,47 +109,73 @@ export class RpcServer {
       const write = (event: string, data: unknown) => socket.write(JSON.stringify({ event, data }) + "\n");
       const nodeChanged = (nodeId: string) => write("NodeChanged", { nodeId });
       const transferChanged = (transfer: unknown) => write("TransferChanged", transfer);
+      const conflicts = new Set<string>();
+      const syncConflict = () => {
+        const current = this.engine.conflicts();
+        for (const conflict of current) if (!conflicts.has(conflict.nodeId)) { conflicts.add(conflict.nodeId); write("Conflict", conflict); }
+        for (const nodeId of [...conflicts]) if (!current.some(c => c.nodeId === nodeId)) { conflicts.delete(nodeId); write("ConflictResolved", { nodeId }); }
+      };
       this.engine.on("nodeChanged", nodeChanged); this.engine.transfers.on("changed", transferChanged);
       socket.on("close", () => { this.engine.off("nodeChanged", nodeChanged); this.engine.transfers.off("changed", transferChanged); });
-      write("Status", await this.dispatch("GetStatus", {})); return;
+      const status = await this.boundedDispatch("GetStatus", {}) as { conflicts?: unknown };
+      write("Status", status);
+      if (Array.isArray(status.conflicts)) for (const conflict of status.conflicts) if (conflict && typeof conflict === "object" && "nodeId" in conflict) { conflicts.add(String((conflict as { nodeId: unknown }).nodeId)); write("Conflict", conflict); }
+      this.engine.on("nodeChanged", syncConflict);
+      socket.on("close", () => this.engine.off("nodeChanged", syncConflict));
+      return;
     }
-    try { socket.end(JSON.stringify({ id: request.id, result: await this.dispatch(request.method, request.params ?? {}) }) + "\n"); }
+    try { socket.end(JSON.stringify({ id: request.id, result: await this.boundedDispatch(request.method, request.params ?? {}) }) + "\n"); }
     catch (e) { socket.end(JSON.stringify({ id: request.id, error: { code: e instanceof Error ? e.name : "ERROR", message: e instanceof Error ? e.message : String(e) } }) + "\n"); }
+  }
+  private async boundedDispatch(method: string, params: Record<string, unknown>): Promise<unknown> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        this.dispatch(method, params),
+        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`RPC operation timed out: ${method}`)), RPC_TIMEOUT_MS); }),
+      ]);
+    } finally { if (timer) clearTimeout(timer); }
   }
   private async dispatch(method: string, p: Record<string, unknown>): Promise<unknown> {
     const id = () => requiredId(p.nodeId, "nodeId");
     switch (method) {
-      case "GetVersion": return { version: "0.2.0-alpha.1", apiVersion: 1, provider: this.engine.provider.kind };
+      case "GetVersion": return { version: "0.3.0-alpha.2", apiVersion: 1, provider: this.engine.provider.kind, readOnly: false };
       case "GetStatus": {
-        let account = null; let connectionError = "";
-        try { account = await this.engine.provider.getAccountInfo?.() ?? null; }
-        catch { connectionError = "Nie udało się połączyć z Proton Drive."; }
+        const { account, connectionError, checkedAt } = await this.accountStatus();
         const authenticated = this.engine.provider.kind === "fake" || account !== null;
         return {
           connected: authenticated && connectionError === "", authenticated,
-          readOnly: this.engine.provider.kind === "proton-cli", provider: this.engine.provider.kind,
-          account, connectionError, checkedAt: Date.now(), cacheBytes: await this.engine.cacheUsage(),
-          version: "0.2.0-alpha.1", transfers: this.engine.transfers.list(true),
+          readOnly: false, provider: this.engine.provider.kind,
+          account, connectionError, checkedAt, cacheBytes: await this.engine.cacheUsage(),
+          version: "0.3.0-alpha.2", apiVersion: 1, transfers: this.engine.transfers.list(true),
+          conflicts: this.engine.conflicts(),
         };
       }
       case "GetRoot": return this.engine.root();
       case "GetNode": return this.engine.getNode(id());
-      case "ListChildren": return this.engine.listChildren(id());
+      case "ListChildren": return (await this.engine.listChildren(id())).map(node => ({ ...node, localStatus: this.engine.getState(node.id)?.status ?? "cloud-only" }));
+      case "LookupChild": {
+        const node = await this.engine.lookupChild(requiredId(p.parentId, "parentId"), requiredName(p.name));
+        return { ...node, localStatus: this.engine.getState(node.id)?.status ?? "cloud-only" };
+      }
       case "GetNodeStatus": return this.engine.getState(id()) ?? null;
       case "Materialize": return { path: await this.engine.materialize(id()) };
       case "BeginWrite": return { path: await this.engine.beginWrite(id()) };
       case "CommitWrite": return this.engine.queueCommit(id());
       case "SetPinned": return this.engine.pin(id(), Boolean(p.pinned));
       case "Evict": return this.engine.evict(id());
-      case "Retry": return this.engine.queueCommit(id());
+      case "Retry": return this.engine.retry(id());
       case "CreateFolder": return this.engine.createFolder(requiredId(p.parentId, "parentId"), requiredName(p.name));
       case "CreateFile": return this.engine.createFile(requiredId(p.parentId, "parentId"), requiredName(p.name), new Uint8Array());
       case "Rename": return this.engine.rename(id(), requiredName(p.name));
       case "Move": return this.engine.move(id(), requiredId(p.parentId, "parentId"));
       case "Trash": await this.engine.trash(id()); return null;
+      case "ResolveConflict": return this.engine.resolveConflict(id(), conflictResolution(p.resolution), p.copyName === undefined ? undefined : requiredName(p.copyName));
       case "GetTransfers": return this.engine.transfers.list();
+      case "CancelTransfer": return this.engine.cancelQueuedUpload(requiredId(p.transferId, "transferId"));
       case "Sync": await this.engine.syncQueued(); await this.engine.processEvents(); return null;
       case "ClearCache": return this.engine.clearDisposableCache();
+      case "ClearPinnedCache": return this.engine.clearPinnedCache();
       default: throw new Error(`Unknown method: ${method}`);
     }
   }

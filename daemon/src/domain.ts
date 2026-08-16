@@ -21,6 +21,8 @@ export interface NodeState {
   baseRevision?: string;
   cachePath?: string;
   stagingPath?: string;
+  childrenKnown?: boolean;
+  childrenRefreshedAt?: number;
   lastAccessedAt: number;
   error?: string;
 }
@@ -28,7 +30,7 @@ export interface NodeState {
 export interface Transfer {
   id: string;
   nodeId: string;
-  direction: "upload" | "download";
+  direction: "upload" | "download" | "trash";
   name: string;
   bytesDone: number;
   bytesTotal: number;
@@ -47,6 +49,10 @@ export class OfflineError extends Error {
   constructor(message = "Proton Drive is offline") { super(message); this.name = "OfflineError"; }
 }
 
+export class AuthenticationRequiredError extends Error {
+  constructor(message = "Proton Drive authentication is required") { super(message); this.name = "AuthenticationRequiredError"; }
+}
+
 export class ConflictError extends Error {
   constructor(message = "Remote revision changed") { super(message); this.name = "ConflictError"; }
 }
@@ -55,5 +61,12 @@ export class UnsafeEvictionError extends Error {
   constructor(status: SyncStatus) {
     super(`Local content cannot be removed while status is ${status}`);
     this.name = "UnsafeEvictionError";
+  }
+}
+
+export class UnsafeMutationError extends Error {
+  constructor(operation: string, status: SyncStatus) {
+    super(`Cannot ${operation} while local content has status ${status}`);
+    this.name = "UnsafeMutationError";
   }
 }
