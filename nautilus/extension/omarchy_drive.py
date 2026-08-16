@@ -1,5 +1,5 @@
 from __future__ import annotations
-import hashlib, json, os, socket, stat, threading
+import hashlib, json, os, socket, stat, sys, threading
 from pathlib import Path
 import gi
 gi.require_version("GnomeDesktop", "4.0")
@@ -16,6 +16,9 @@ LANGUAGE = (os.environ.get("LC_ALL") or os.environ.get("LC_MESSAGES") or os.envi
 
 def l10n(polish, english):
     return polish if LANGUAGE.startswith("pl") else english
+
+def warn(context, error):
+    print(f"omarchy-drive: {context}: {error}", file=sys.stderr)
 
 def suppress_automatic_thumbnail(uri, path, status, mime_type):
     if not thumbnail_relevant(mime_type): return
@@ -47,7 +50,9 @@ def rpc(method, **params):
 def run_actions(method, selected, extra):
     for node in selected:
         try: rpc(method, nodeId=node, **extra)
-        except (OSError, RuntimeError, ValueError): return
+        except (OSError, RuntimeError, ValueError) as error:
+            warn(f"action {method} failed for {node}", error)
+            return
 
 class OmarchyDriveExtension(GObject.GObject, Nautilus.MenuProvider, Nautilus.InfoProvider):
     def update_file_info(self, info):
@@ -59,7 +64,8 @@ class OmarchyDriveExtension(GObject.GObject, Nautilus.MenuProvider, Nautilus.Inf
             suppress_automatic_thumbnail(info.get_uri(), path, status, info.get_mime_type())
             emblem=EMBLEMS.get(status)
             if emblem: info.add_emblem(emblem)
-        except (OSError, RuntimeError, ValueError): pass
+        except (OSError, RuntimeError, ValueError) as error:
+            warn(f"status update failed for {info.get_uri()}", error)
     def get_file_items(self, files):
         selected=[]; states=[]
         for info in files:
@@ -67,7 +73,9 @@ class OmarchyDriveExtension(GObject.GObject, Nautilus.MenuProvider, Nautilus.Inf
             if not path: return []
             try:
                 selected.append(node_id(path)); states.append({"status": node_status(path)})
-            except (OSError, RuntimeError, ValueError): return []
+            except (OSError, RuntimeError, ValueError) as error:
+                warn(f"menu state failed for {info.get_uri()}", error)
+                return []
         root=Nautilus.MenuItem(
             name="OmarchyDrive::root",
             label="Proton Drive",

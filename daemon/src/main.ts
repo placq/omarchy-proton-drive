@@ -19,6 +19,8 @@ if (!["fake", "proton-cli"].includes(providerName)) {
   console.error("Set OMARCHY_DRIVE_PROVIDER=fake or proton-cli.");
   process.exitCode = 78;
 } else {
+  // ProtonSdkProvider is a tested seam for a future event-driven client and is
+  // intentionally not selectable here (see docs/ARCHITECTURE.md).
   const provider = providerName === "fake"
     ? new FakeDriveProvider()
     : new OfficialCliProvider(process.env.OMARCHY_DRIVE_CLI ?? join(homedir(), ".local/bin/proton-drive"));

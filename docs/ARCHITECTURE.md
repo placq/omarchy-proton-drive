@@ -1,6 +1,6 @@
 # Architecture
 
-`DriveEngine` owns file state, transfers, cache, staging, conflict decisions and provider calls. `DriveProvider` isolates Proton integration churn; `FakeDriveProvider` exercises the same core without credentials. Real accounts use `OfficialCliProvider`, which keeps Proton authentication and cryptography inside a CLI built from pinned official source. `ProtonSdkProvider` remains a tested direct-SDK seam for a future published authentication package.
+`DriveEngine` owns file state, transfers, cache, staging, conflict decisions and provider calls. `DriveProvider` isolates Proton integration churn; `FakeDriveProvider` exercises the same core without credentials. Real accounts use `OfficialCliProvider`, which keeps Proton authentication and cryptography inside a CLI built from pinned official source. `ProtonSdkProvider` remains a tested direct-SDK seam for a future published authentication package; it is deliberately not selectable in `main.ts` today (no production entry point).
 
 The daemon exposes a versioned newline-delimited RPC protocol on a user-only Unix socket. FUSE, the control helper, Nautilus and Quattro consume that protocol. A long-running `Watch` request emits node and transfer changes so UI state is event-driven.
 

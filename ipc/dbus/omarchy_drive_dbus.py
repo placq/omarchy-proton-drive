@@ -66,6 +66,8 @@ class OmarchyDriveInterface(ServiceInterface):
     @signal()
     def ConflictDetected(self, node_id: 's') -> 's': return node_id
     @signal()
+    def ConflictResolved(self, node_id: 's') -> 's': return node_id
+    @signal()
     def AuthRequired(self) -> 's': return "auth-required"
 
 async def forward_events(interface: OmarchyDriveInterface):
@@ -79,14 +81,17 @@ async def forward_events(interface: OmarchyDriveInterface):
                     interface.ConnectionChanged(bool(data.get("connected")))
                     if not data.get("authenticated", False): interface.AuthRequired()
                 elif event == "NodeChanged":
-                    node_id=str(data.get("nodeId", "")); interface.NodeChanged(node_id)
-                    try:
-                        state=await asyncio.to_thread(rpc, "GetNodeStatus", nodeId=node_id)
-                        if state and state.get("status") == "conflict": interface.ConflictDetected(node_id)
-                    except Exception as error: print(json.dumps({"level":"warn", "event":"node_status_forward_failed", "error":str(error)}), flush=True)
-                elif event == "TransferChanged": interface.TransferChanged(json.dumps(data, ensure_ascii=False))
+                    interface.NodeChanged(str(data.get("nodeId", "")))
+                elif event == "TransferChanged":
+                    interface.TransferChanged(json.dumps(data, ensure_ascii=False))
+                elif event == "Conflict":
+                    interface.ConflictDetected(str(data.get("nodeId", "")))
+                elif event == "ConflictResolved":
+                    interface.ConflictResolved(str(data.get("nodeId", "")))
             writer.close(); await writer.wait_closed()
-        except (OSError, json.JSONDecodeError): await asyncio.sleep(2)
+        except (OSError, json.JSONDecodeError) as error:
+            print(json.dumps({"level":"warn", "event":"watch_reconnect", "error":str(error)}), flush=True)
+            await asyncio.sleep(2)
 
 async def main():
     bus=await MessageBus().connect(); interface=OmarchyDriveInterface(); bus.export(OBJECT_PATH, interface); await bus.request_name(BUS_NAME)

@@ -8,6 +8,8 @@
 - Report transfer progress honestly: the CLI provider is marked as not progress-capable, so its transfers render as indeterminate instead of a frozen bar, and queued uploads are explicit.
 - Allow cancelling a queued or running upload from the bar popup; staged bytes stay recoverable and the node returns to a dirty, re-uploadable state.
 - Remove the artificial 2.5 s delay after cache clearing; the completion message appears as soon as the process exits.
+- Make the D-Bus conflict surface live: `ConflictResolved` signal added, `Conflict`/`ConflictResolved` events forwarded, and the QML popup scrolls instead of clipping long conflict/transfer lists.
+- Replace silent failure swallowing with structured logs (daemon background refreshes, D-Bus reconnects, Nautilus actions) and unify widget language handling; the QML version fallback is now covered by validation.
 
 - Reuse fresh folder metadata before downloads and recursive pinning, cache repeated FUSE directory access, and suppress duplicate Nautilus thumbnail bookkeeping.
 - Reuse prepared SQLite statements and remove repeated permission syscalls from the transaction hot path while retaining private database/WAL modes.

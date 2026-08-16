@@ -58,12 +58,15 @@ export class DriveEngine extends EventEmitter {
   private stateFor(node: DriveNode): NodeState {
     return this.store.getState(node.id) ?? { nodeId: node.id, status: "cloud-only", pinned: false, remoteRevision: node.revision, lastAccessedAt: Date.now() };
   }
+  private logWarn(event: string, error: unknown): void {
+    console.error(JSON.stringify({ level: "warn", event, error: error instanceof Error ? error.message : String(error) }));
+  }
   private async remember(node: DriveNode, state?: NodeState): Promise<void> {
     this.store.setNode(node); this.store.setState(state ?? this.stateFor(node)); await this.store.save(); this.emit("nodeChanged", node.id);
   }
   async root(): Promise<DriveNode> {
     const cached = this.store.getRoot();
-    if (cached) { void this.refreshRoot("background").catch(() => undefined); return cached; }
+    if (cached) { void this.refreshRoot("background").catch(error => this.logWarn("root_refresh_failed", error)); return cached; }
     return this.refreshRoot();
   }
   private async refreshRoot(priority: RequestPriority = "interactive"): Promise<DriveNode> {
@@ -81,7 +84,7 @@ export class DriveEngine extends EventEmitter {
         parentState.childrenKnown = true; this.store.setState(parentState); await this.store.save();
       }
       if (!parentState?.childrenRefreshedAt || Date.now() - parentState.childrenRefreshedAt >= LISTING_TTL_MS) {
-        void this.refreshChildren(parentId, "background").catch(() => undefined);
+        void this.refreshChildren(parentId, "background").catch(error => this.logWarn("children_refresh_failed", error));
       }
       this.schedulePrefetch(cached);
       return cached;
@@ -94,7 +97,7 @@ export class DriveEngine extends EventEmitter {
     const cached = this.store.findChild(parentId, name);
     if (cached) {
       const parent = this.store.getNode(parentId); const state = parent ? this.stateFor(parent) : undefined;
-      if (!state?.childrenRefreshedAt || Date.now() - state.childrenRefreshedAt >= LISTING_TTL_MS) void this.refreshChildren(parentId, "background").catch(() => undefined);
+      if (!state?.childrenRefreshedAt || Date.now() - state.childrenRefreshedAt >= LISTING_TTL_MS) void this.refreshChildren(parentId, "background").catch(error => this.logWarn("children_refresh_failed", error));
       return cached;
     }
     const child = (await this.refreshChildren(parentId)).find(node => node.name === name);
@@ -138,7 +141,7 @@ export class DriveEngine extends EventEmitter {
   private drainPrefetch(): void {
     while (this.prefetchActive < PREFETCH_CONCURRENCY && this.prefetchQueue.length) {
       const folderId = this.prefetchQueue.shift()!; this.prefetchQueued.delete(folderId); this.prefetchActive += 1;
-      void this.refreshChildren(folderId, "background").catch(() => undefined).finally(() => { this.prefetchActive -= 1; this.drainPrefetch(); });
+      void this.refreshChildren(folderId, "background").catch(error => this.logWarn("prefetch_failed", error)).finally(() => { this.prefetchActive -= 1; this.drainPrefetch(); });
     }
   }
   async getNode(nodeId: string): Promise<DriveNode> {

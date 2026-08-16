@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
@@ -11,7 +12,6 @@ BarWidget {
     readonly property bool connected: driveService ? driveService.connected : false
     readonly property bool loading: driveService ? driveService.loading : true
     readonly property string provider: driveService ? driveService.provider : "unconfigured"
-    readonly property bool readOnly: driveService ? driveService.readOnly : false
     readonly property bool needsAttention: driveService && (driveService.lastError !== "" || driveService.conflicts.length > 0)
         || (!connected && provider !== "unconfigured" && !loading)
     readonly property bool transferring: connected && driveService
@@ -41,7 +41,7 @@ BarWidget {
         if (root.deleting) return root.l10n("Przenoszenie do kosza…", "Moving to trash…")
         if (connected) return driveService && driveService.transfers.length > 0
             ? root.l10n("Trwa pobieranie", "Transfer in progress")
-            : (readOnly ? root.l10n("Połączono · Tylko do odczytu", "Connected · Read only") : root.l10n("Połączono", "Connected"))
+            : root.l10n("Połączono", "Connected")
         return provider === "unconfigured"
             ? root.l10n("Nieskonfigurowany", "Not configured")
             : root.l10n("Wymagane logowanie", "Sign-in required")
@@ -125,7 +125,7 @@ BarWidget {
                 root.cacheClearClearedPinnedFiles=Number(result.clearedPinnedFiles || 0)
                 root.cacheClearRetainedUnsafeFiles=Number(result.retainedUnsafeFiles || 0)
                 if (root.driveService) root.driveService.cacheBytes=Number(result.cacheBytes || 0)
-            } catch (e) {}
+            } catch (e) { console.log("omarchy-drive: invalid clear-cache output", e) }
         }}
         onExited: exitCode => {
             root.cacheClearSucceeded=exitCode === 0
@@ -194,9 +194,15 @@ BarWidget {
         contentWidth: popup.fittedContentWidth(Style.space(300))
         contentHeight: popup.fittedContentHeight(details.implicitHeight)
 
+        ScrollView {
+            id: detailsScroll
+            anchors.fill: parent
+            clip: true
+            ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+
         Column {
             id: details
-            anchors.fill: parent
+            width: detailsScroll.availableWidth
             spacing: Style.space(10)
 
             PanelHero {
@@ -297,9 +303,7 @@ BarWidget {
                 spacing: Style.space(2)
 
                 Text {
-                    text: root.readOnly
-                        ? root.l10n("Połączono · Tylko do odczytu", "Connected · Read only")
-                        : root.l10n("Połączono", "Connected")
+                    text: root.l10n("Połączono", "Connected")
                     color: Color.popups.text
                     font.pixelSize: Style.font.bodySmall
                     font.bold: true
@@ -616,6 +620,7 @@ Rectangle {
                 width: parent.width
                 horizontalAlignment: Text.AlignHCenter
             }
+        }
         }
     }
 }

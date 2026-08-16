@@ -8,6 +8,8 @@ Methods: `GetVersion`, `GetStatus`, `GetNodeStatus`, `SetPinned`, `Evict`, `Retr
 
 `CancelTransfer(transfer_id)` cancels a queued or running upload. The node returns to a dirty state with its staged bytes intact; only uploads can be cancelled.
 
-Signals: `ConnectionChanged`, `NodeChanged`, `TransferChanged`, `ConflictDetected`, and `AuthRequired`.
+Signals: `ConnectionChanged`, `NodeChanged`, `TransferChanged`, `ConflictDetected`, `ConflictResolved`, and `AuthRequired`.
+
+`ConflictDetected(node_id)` fires when the daemon reports a new conflict and `ConflictResolved(node_id)` when it leaves the conflict state. `AuthRequired` fires whenever the daemon reports an unauthenticated status (expired or revoked session). The QML bar widget consumes the daemon's raw `Watch` stream directly; these signals are the stable surface for external integrations.
 
 Filesystem operations and bulk data do not cross D-Bus. FUSE uses the private, version-checked Unix transport; applications consume normal filesystem calls through the mounted **Proton Drive** folder.

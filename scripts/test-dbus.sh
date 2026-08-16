@@ -58,6 +58,10 @@ dbus-run-session -- bash -eu -o pipefail -c '
   done
   grep -q '\''0.3.0-alpha.2'\'' "$1/version.out"
   gdbus call --session --dest io.github.placq.OmarchyProtonDrive1 --object-path /io/github/placq/OmarchyProtonDrive1 --method io.github.placq.OmarchyProtonDrive1.GetStatus | grep -q '\''"connected": true'\''
+  introspect=$(gdbus introspect --session --dest io.github.placq.OmarchyProtonDrive1 --object-path /io/github/placq/OmarchyProtonDrive1)
+  for signal in ConflictDetected ConflictResolved AuthRequired; do
+    grep -q "$signal(" <<<"$introspect" || { printf '\''Missing D-Bus signal: %s\n'\'' "$signal" >&2; exit 1; }
+  done
 ' _ "$test_root"
 
 printf 'D-Bus runtime integration passed.\n'

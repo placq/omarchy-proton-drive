@@ -19,7 +19,7 @@ if (typeof manifest.entryPoints.service !== 'string' || typeof manifest.entryPoi
 }
 if (manifest.version !== pkg.version) throw new Error(`manifest/package version mismatch: ${manifest.version} != ${pkg.version}`);
 if (lock.version !== pkg.version || lock.packages?.[""]?.version !== pkg.version) throw new Error('package-lock version mismatch');
-for (const file of ['daemon/src/rpc-server.ts', 'daemon/src/proton-sdk-provider.ts', 'scripts/doctor.sh', 'scripts/install-proton-cli.sh']) {
+for (const file of ['daemon/src/rpc-server.ts', 'daemon/src/proton-sdk-provider.ts', 'scripts/doctor.sh', 'scripts/install-proton-cli.sh', 'omarchy/Service.qml']) {
   if (!fs.readFileSync(file, 'utf8').includes(pkg.version)) throw new Error(`${file} does not contain package version ${pkg.version}`);
 }
 const archVersion = pkg.version.replace(/-alpha\./, '_alpha');
