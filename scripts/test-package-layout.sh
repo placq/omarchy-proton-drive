@@ -15,6 +15,8 @@ package_root="$test_root/root"
 for path in \
   usr/bin/omarchy-drive-control \
   usr/lib/omarchy-drive/daemon/src/main.ts \
+  usr/lib/omarchy-drive/daemon/src/official-cli-provider.ts \
+  usr/lib/omarchy-drive/daemon/src/settings.ts \
   usr/lib/omarchy-drive/filesystem/fuse/omarchy-drive-fuse.py \
   usr/lib/omarchy-drive/ipc/rpc_client.py \
   usr/lib/omarchy-drive/ipc/dbus/omarchy_drive_dbus.py; do
