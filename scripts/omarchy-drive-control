@@ -2,16 +2,16 @@
 import argparse, json, os, socket, subprocess, sys
 from pathlib import Path
 
+source_root = Path(__file__).resolve().parents[1]
+library_root = source_root if (source_root / "ipc/rpc_client.py").is_file() else source_root / "lib/omarchy-drive"
+sys.path.insert(0, str(library_root))
+from ipc.rpc_client import RpcClient
+
 SOCKET = os.environ.get("OMARCHY_DRIVE_SOCKET", f"{os.environ.get('XDG_RUNTIME_DIR', '/tmp')}/omarchy-drive.sock")
+RPC_CLIENT = RpcClient(SOCKET)
 
 def call(method, **params):
-    req=(json.dumps({"id":1,"method":method,"params":params})+"\n").encode()
-    with socket.socket(socket.AF_UNIX) as conn:
-        conn.settimeout(5 * 60); conn.connect(SOCKET); conn.sendall(req); data=b""
-        while b"\n" not in data: data += conn.recv(65536)
-    response=json.loads(data.split(b"\n",1)[0])
-    if "error" in response: raise RuntimeError(response["error"]["message"])
-    return response["result"]
+    return RPC_CLIENT.call(method, **params)
 
 def main():
     p=argparse.ArgumentParser(); sub=p.add_subparsers(dest="command", required=True)

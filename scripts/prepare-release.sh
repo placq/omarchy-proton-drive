@@ -20,7 +20,7 @@ archive="$release_dir/omarchy-drive-$version.tar.gz"
 git archive --format=tar --prefix="omarchy-drive-$version/" HEAD | gzip -n -9 > "$archive"
 source_sha=$(sha256sum "$archive" | awk '{print $1}')
 sed -e "s/@VERSION@/$version/g" -e "s/@PKGVER@/$pkgver/g" -e "s/@SOURCE_SHA256@/$source_sha/g" packaging/arch/PKGBUILD.release.in > "$release_dir/PKGBUILD"
-cp CHANGELOG.md LICENSE "$release_dir/"
-(cd "$release_dir" && sha256sum "$(basename "$archive")" PKGBUILD > SHA256SUMS)
+cp CHANGELOG.md LICENSE scripts/clean-machine-acceptance.sh "$release_dir/"
+(cd "$release_dir" && sha256sum "$(basename "$archive")" PKGBUILD clean-machine-acceptance.sh > SHA256SUMS)
 printf 'Prepared release artifacts in %s\n' "$release_dir"
 printf 'Upload the archive, PKGBUILD and SHA256SUMS to the %s release, then build the generated PKGBUILD on a clean machine.\n' "$tag"

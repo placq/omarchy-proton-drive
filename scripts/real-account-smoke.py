@@ -3,35 +3,24 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 from pathlib import Path
-import socket
 import subprocess
+import sys
 import tempfile
 import time
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from ipc.rpc_client import RpcClient
 
 SOCKET = os.environ.get("OMARCHY_DRIVE_SOCKET", f"{os.environ.get('XDG_RUNTIME_DIR', '/tmp')}/omarchy-drive.sock")
 CLI = os.environ.get("OMARCHY_DRIVE_CLI", str(Path.home() / ".local/bin/proton-drive"))
 TEST_ROOT_NAME = "OmarchyDriveIntegrationTests"
+RPC_CLIENT = RpcClient(SOCKET)
 
 
 def rpc(method: str, **params):
-    request = (json.dumps({"id": 1, "method": method, "params": params}) + "\n").encode()
-    with socket.socket(socket.AF_UNIX) as connection:
-        connection.settimeout(5 * 60)
-        connection.connect(SOCKET)
-        connection.sendall(request)
-        data = b""
-        while b"\n" not in data:
-            part = connection.recv(65536)
-            if not part:
-                raise RuntimeError("Daemon closed the RPC connection")
-            data += part
-    response = json.loads(data.split(b"\n", 1)[0])
-    if "error" in response:
-        raise RuntimeError(response["error"]["message"])
-    return response["result"]
+    return RPC_CLIENT.call(method, **params)
 
 
 def wait_for(node_id: str, wanted: set[str], timeout: float = 120) -> dict:

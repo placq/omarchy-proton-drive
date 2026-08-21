@@ -17,17 +17,17 @@ if [[ -S ${XDG_RUNTIME_DIR:-/tmp}/omarchy-drive.sock ]]; then printf 'OK   daemo
 if status_json=$(timeout 15s omarchy-drive-control status 2>/dev/null) && python3 -c '
 import json, sys
 status=json.load(sys.stdin)
-raise SystemExit(0 if status.get("version") == "0.3.0-alpha.2" and status.get("apiVersion") == 1 else 1)
+raise SystemExit(0 if status.get("version") == "1.0.0" and status.get("apiVersion") == 1 else 1)
 ' <<<"$status_json"; then
-  printf 'OK   daemon/API version       0.3.0-alpha.2 / 1\n'
+  printf 'OK   daemon/API version       1.0.0 / 1\n'
 else
-  printf 'WARN daemon/API version mismatch (expected 0.3.0-alpha.2 / 1)\n'; warn=$((warn+1))
+  printf 'WARN daemon/API version mismatch (expected 1.0.0 / 1)\n'; warn=$((warn+1))
 fi
 if busctl --user status io.github.placq.OmarchyProtonDrive1 >/dev/null 2>&1; then printf 'OK   session D-Bus active\n'; else printf 'WARN session D-Bus inactive\n'; warn=$((warn+1)); fi
 plugin_manifest="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/plugins/placq.proton-drive/manifest.json"
 if [[ -f $plugin_manifest ]]; then
-  if python3 -c 'import json,sys; raise SystemExit(0 if json.load(open(sys.argv[1])).get("version") == "0.3.0-alpha.2" else 1)' "$plugin_manifest"; then
-    printf 'OK   Quattro plugin version   0.3.0-alpha.2\n'
+  if python3 -c 'import json,sys; raise SystemExit(0 if json.load(open(sys.argv[1])).get("version") == "1.0.0" else 1)' "$plugin_manifest"; then
+    printf 'OK   Quattro plugin version   1.0.0\n'
   else
     printf 'WARN Quattro plugin version mismatch\n'; warn=$((warn+1))
   fi

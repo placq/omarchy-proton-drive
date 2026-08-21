@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Unofficial Proton Drive integration for Omarchy (developer alpha). Multi-language repo: TypeScript daemon, Python FUSE/D-Bus/Nautilus, QML bar widget, bash/systemd/Arch packaging. Docs live in `docs/` (ARCHITECTURE, DBUS-API, AUTH-INTEGRATION, SECURITY, TEST-STATUS) and `NEXT.md`.
+Unofficial Proton Drive integration for Omarchy (1.0 release candidate). Multi-language repo: TypeScript daemon, Python FUSE/D-Bus/Nautilus, QML bar widget, bash/systemd/Arch packaging. Docs live in `docs/` (ARCHITECTURE, DBUS-API, AUTH-INTEGRATION, SECURITY, TEST-STATUS) and `NEXT.md`.
 
 ## Commands
 
@@ -19,7 +19,7 @@ Enforces: manifest/package/lock/PKGBUILD version sync, `bash -n` on scripts, `py
 
 ## Version bumps
 
-`0.3.0-alpha.2` must be synced across: `manifest.json`, `package.json`, `package-lock.json`, `daemon/src/rpc-server.ts`, `daemon/src/proton-sdk-provider.ts`, `scripts/doctor.sh`, `scripts/install-proton-cli.sh`, and `packaging/arch/PKGBUILD` (uses `_alpha` separator). `scripts/test-dbus.sh` also greps the version. `validate-local.sh` fails on any mismatch. Release flow: tag `v<package-version>`, then `./scripts/prepare-release.sh` (writes `dist/<version>/`).
+`1.0.0` must be synced across: `manifest.json`, `package.json`, `package-lock.json`, `daemon/src/rpc-server.ts`, `daemon/src/proton-sdk-provider.ts`, `scripts/doctor.sh`, `scripts/install-proton-cli.sh`, and `packaging/arch/PKGBUILD` (`-alpha.N` versions use an `_alphaN` separator). `scripts/test-dbus.sh` also greps the version. `validate-local.sh` fails on any mismatch. Release flow: tag `v<package-version>`, then `./scripts/prepare-release.sh` (writes `dist/<version>/`).
 
 ## Architecture
 

@@ -24,6 +24,15 @@ for (const file of ['daemon/src/rpc-server.ts', 'daemon/src/proton-sdk-provider.
 }
 const archVersion = pkg.version.replace(/-alpha\./, '_alpha');
 if (!fs.readFileSync('packaging/arch/PKGBUILD', 'utf8').includes(`pkgver=${archVersion}`)) throw new Error('PKGBUILD version mismatch');
+for (const file of ['packaging/arch/PKGBUILD', 'packaging/arch/PKGBUILD.release.in']) {
+  const content = fs.readFileSync(file, 'utf8');
+  if (!content.includes("find \"$pkgdir/usr/lib/omarchy-drive/ipc\" -type f -name 'test_*.py' -delete")) throw new Error(`${file} packages IPC tests`);
+  if (!content.includes("'libsecret'")) throw new Error(`${file} misses the libsecret runtime dependency`);
+}
+const releaseScript = fs.readFileSync('scripts/prepare-release.sh', 'utf8');
+if (!releaseScript.includes('scripts/clean-machine-acceptance.sh') || !releaseScript.includes('PKGBUILD clean-machine-acceptance.sh')) {
+  throw new Error('release preparation does not checksum the clean-machine acceptance runner');
+}
 for (const entry of Object.values(manifest.entryPoints)) {
   if (typeof entry !== 'string' || entry.startsWith('/') || entry.includes('..')) throw new Error(`unsafe entry point: ${entry}`);
 }
@@ -31,9 +40,14 @@ NODE
 
 printf 'Checking scripts and Python modules…\n'
 bash -n scripts/*.sh
-python3 -m py_compile scripts/omarchy-drive-control scripts/real-account-smoke.py filesystem/fuse/omarchy-drive-fuse.py ipc/dbus/omarchy_drive_dbus.py nautilus/extension/omarchy_drive.py nautilus/extension/drive_logic.py
+python3 -m py_compile scripts/omarchy-drive-control scripts/real-account-smoke.py scripts/real_account_recovery.py scripts/test_real_account_recovery.py filesystem/fuse/omarchy-drive-fuse.py ipc/rpc_client.py ipc/dbus/omarchy_drive_dbus.py nautilus/extension/omarchy_drive.py nautilus/extension/drive_logic.py
+python3 -m unittest discover -s scripts -p 'test_*.py'
+python3 -m unittest discover -s ipc -p 'test_*.py'
 python3 -m unittest discover -s nautilus/extension -p 'test_*.py'
 grep -q 'is_local_trash' filesystem/fuse/omarchy-drive-fuse.py || { printf 'FUSE must reject the generic local trash protocol\n' >&2; exit 1; }
+./scripts/test-uninstall-guard.sh
+./scripts/test-package-layout.sh
+./scripts/test-release-acceptance.sh
 ./scripts/test-dbus.sh
 
 if command -v systemd-analyze >/dev/null 2>&1; then

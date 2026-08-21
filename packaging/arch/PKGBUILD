@@ -1,11 +1,11 @@
 pkgname=omarchy-drive
-pkgver=0.3.0_alpha2
+pkgver=1.0.0
 pkgrel=1
 pkgdesc="Unofficial Proton Drive desktop integration for Omarchy Quattro"
 arch=('any')
 url="https://github.com/placq/omarchy-proton-drive"
 license=('MIT')
-depends=('bun' 'fuse3' 'gnome-desktop-4' 'nautilus' 'nautilus-python' 'python-dbus-next' 'python-pyfuse3' 'python-trio')
+depends=('bun' 'fuse3' 'gnome-desktop-4' 'libsecret' 'nautilus' 'nautilus-python' 'python-dbus-next' 'python-pyfuse3' 'python-trio')
 options=('!strip')
 source=()
 sha256sums=()
@@ -24,5 +24,6 @@ package() {
   chmod 755 "$pkgdir/usr/lib/omarchy-drive/filesystem/fuse/omarchy-drive-fuse.py"
   chmod 755 "$pkgdir/usr/lib/omarchy-drive/ipc/dbus/omarchy_drive_dbus.py"
   rm -rf "$pkgdir/usr/lib/omarchy-drive/daemon/tests"
+  find "$pkgdir/usr/lib/omarchy-drive/ipc" -type f -name 'test_*.py' -delete
   find "$pkgdir/usr/lib/omarchy-drive" -type d -name __pycache__ -prune -exec rm -rf {} +
 }

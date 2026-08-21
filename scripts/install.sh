@@ -4,7 +4,9 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 fake=false
 if [[ ${1:-} == --fake ]]; then fake=true; elif [[ ${1:-} != "" ]]; then printf 'Usage: %s [--fake]\n' "$0" >&2; exit 2; fi
 if ! command -v omarchy >/dev/null; then printf 'This product installer requires Omarchy Quattro.\n' >&2; exit 1; fi
-if ! command -v makepkg >/dev/null; then printf 'makepkg is required.\n' >&2; exit 1; fi
+missing=()
+for command in makepkg git bun; do command -v "$command" >/dev/null || missing+=("$command"); done
+if ((${#missing[@]})); then printf 'Missing installer tools: %s\n' "${missing[*]}" >&2; exit 1; fi
 printf 'Install Proton Drive for Omarchy?\n\n• background service\n• FUSE filesystem integration\n• Nautilus integration\n\n'
 read -r -p 'Continue [y/N]? ' answer
 [[ $answer == [yY] ]] || exit 0

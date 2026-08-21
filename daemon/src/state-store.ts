@@ -88,27 +88,41 @@ export class StateStore {
     }
   }
   async save(): Promise<void> {
+    if (!this.dirtyNodes.size && !this.dirtyStates.size && !this.eventIdDirty) return this.saveChain;
+    const operation = this.saveChain.catch(() => undefined).then(() => this.flushDirty());
+    this.saveChain = operation;
+    return operation;
+  }
+  private async flushDirty(): Promise<void> {
     const nodes = new Map(this.dirtyNodes); this.dirtyNodes.clear();
     const states = new Map(this.dirtyStates); this.dirtyStates.clear();
     const eventIdDirty = this.eventIdDirty; this.eventIdDirty = false;
     const eventId = this.snapshot.lastEventId;
-    if (!nodes.size && !states.size && !eventIdDirty) return this.saveChain;
-    const operation = this.saveChain.catch(() => undefined).then(async () => {
-      const database = this.database;
-      const statements = this.statements;
-      if (!database || !statements) throw new Error("StateStore is not loaded");
-      database.exec("BEGIN IMMEDIATE");
-      try {
-        for (const [id, node] of nodes) node ? statements.upsertNode.run(id, JSON.stringify(node)) : statements.deleteNode.run(id);
-        for (const [id, state] of states) state ? statements.upsertState.run(id, JSON.stringify(state)) : statements.deleteState.run(id);
-        if (eventIdDirty) {
-          if (eventId === undefined) statements.deleteEventId.run();
-          else statements.upsertEventId.run(eventId);
-        }
-        database.exec("COMMIT");
-      } catch (error) { database.exec("ROLLBACK"); throw error; }
-    });
-    this.saveChain = operation; return operation;
+    if (!nodes.size && !states.size && !eventIdDirty) return;
+    const database = this.database;
+    const statements = this.statements;
+    if (!database || !statements) {
+      for (const [id, node] of nodes) this.dirtyNodes.set(id, node);
+      for (const [id, state] of states) this.dirtyStates.set(id, state);
+      if (eventIdDirty) this.eventIdDirty = true;
+      throw new Error("StateStore is not loaded");
+    }
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const [id, node] of nodes) node ? statements.upsertNode.run(id, JSON.stringify(node)) : statements.deleteNode.run(id);
+      for (const [id, state] of states) state ? statements.upsertState.run(id, JSON.stringify(state)) : statements.deleteState.run(id);
+      if (eventIdDirty) {
+        if (eventId === undefined) statements.deleteEventId.run();
+        else statements.upsertEventId.run(eventId);
+      }
+      database.exec("COMMIT");
+    } catch (error) {
+      try { database.exec("ROLLBACK"); } catch { /* preserve the original transaction failure */ }
+      for (const [id, node] of nodes) if (!this.dirtyNodes.has(id)) this.dirtyNodes.set(id, node);
+      for (const [id, state] of states) if (!this.dirtyStates.has(id)) this.dirtyStates.set(id, state);
+      if (eventIdDirty) this.eventIdDirty = true;
+      throw error;
+    }
   }
   private addToIndexes(node: DriveNode): void {
     let children = this.childrenByParent.get(node.parentId);

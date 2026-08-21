@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Session D-Bus bridge for the Proton Drive for Omarchy daemon's private RPC socket."""
 from __future__ import annotations
-import asyncio, json, os, socket, subprocess
+import asyncio, json, os, subprocess, sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from ipc.rpc_client import RpcClient, RpcError
 from dbus_next.aio import MessageBus
 from dbus_next.errors import DBusError
 from dbus_next.service import ServiceInterface, method, signal
@@ -11,18 +13,13 @@ BUS_NAME = "io.github.placq.OmarchyProtonDrive1"
 OBJECT_PATH = "/io/github/placq/OmarchyProtonDrive1"
 SOCKET_PATH = os.environ.get("OMARCHY_DRIVE_SOCKET", f"{os.environ.get('XDG_RUNTIME_DIR', '/tmp')}/omarchy-drive.sock")
 MOUNT_PATH = Path(os.environ.get("OMARCHY_DRIVE_MOUNT", str(Path.home() / ".local/share/omarchy-drive/mount"))).expanduser()
+RPC_CLIENT = RpcClient(SOCKET_PATH)
 
 def rpc(method_name: str, **params):
-    request=(json.dumps({"id":1,"method":method_name,"params":params})+"\n").encode()
-    with socket.socket(socket.AF_UNIX) as connection:
-        connection.settimeout(5 * 60); connection.connect(SOCKET_PATH); connection.sendall(request); data=b""
-        while b"\n" not in data:
-            part=connection.recv(65536)
-            if not part: break
-            data += part
-    response=json.loads(data.split(b"\n",1)[0])
-    if "error" in response: raise DBusError(f"{BUS_NAME}.Error", response["error"]["message"])
-    return response["result"]
+    try: return RPC_CLIENT.call(method_name, **params)
+    except (OSError, RpcError) as error:
+        message = str(error) if isinstance(error, RpcError) else "Proton Drive daemon is unavailable"
+        raise DBusError(f"{BUS_NAME}.Error", message) from error
 
 class OmarchyDriveInterface(ServiceInterface):
     def __init__(self): super().__init__(BUS_NAME)
@@ -71,12 +68,20 @@ class OmarchyDriveInterface(ServiceInterface):
     def AuthRequired(self) -> 's': return "auth-required"
 
 async def forward_events(interface: OmarchyDriveInterface):
+    connected_once = False
+    startup_failures = 0
     while True:
+        writer = None
         try:
             reader, writer = await asyncio.open_unix_connection(SOCKET_PATH)
+            connected_once = True
+            startup_failures = 0
             writer.write((json.dumps({"id":1,"method":"Watch","params":{}})+"\n").encode()); await writer.drain()
             while line := await reader.readline():
-                message=json.loads(line); event=message.get("event"); data=message.get("data") or {}
+                message=json.loads(line)
+                if not isinstance(message, dict): raise ValueError("invalid Watch message")
+                event=message.get("event"); data=message.get("data") or {}
+                if not isinstance(data, dict): raise ValueError("invalid Watch data")
                 if event == "Status":
                     interface.ConnectionChanged(bool(data.get("connected")))
                     if not data.get("authenticated", False): interface.AuthRequired()
@@ -88,10 +93,16 @@ async def forward_events(interface: OmarchyDriveInterface):
                     interface.ConflictDetected(str(data.get("nodeId", "")))
                 elif event == "ConflictResolved":
                     interface.ConflictResolved(str(data.get("nodeId", "")))
-            writer.close(); await writer.wait_closed()
-        except (OSError, json.JSONDecodeError) as error:
-            print(json.dumps({"level":"warn", "event":"watch_reconnect", "error":str(error)}), flush=True)
+        except (OSError, ValueError) as error:
+            startup_failures += 1
+            if connected_once or startup_failures % 15 == 0:
+                print(json.dumps({"level":"warn", "event":"watch_reconnect", "error":str(error)}), flush=True)
             await asyncio.sleep(2)
+        finally:
+            if writer is not None:
+                writer.close()
+                try: await writer.wait_closed()
+                except OSError: pass
 
 async def main():
     bus=await MessageBus().connect(); interface=OmarchyDriveInterface(); bus.export(OBJECT_PATH, interface); await bus.request_name(BUS_NAME)

@@ -23,6 +23,8 @@ export interface NodeState {
   stagingPath?: string;
   childrenKnown?: boolean;
   childrenRefreshedAt?: number;
+  remoteDeleted?: boolean;
+  interruptedUpload?: boolean;
   lastAccessedAt: number;
   error?: string;
 }

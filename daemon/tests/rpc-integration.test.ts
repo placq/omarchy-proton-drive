@@ -49,6 +49,18 @@ async function rpc(socketPath: string, method: string, params: Record<string, un
   });
 }
 
+async function rawRpc(socketPath: string, payload: string): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const socket = connect(socketPath); let input = "";
+    socket.setEncoding("utf8"); socket.once("error", reject);
+    socket.on("data", chunk => {
+      input += chunk; const newline = input.indexOf("\n"); if (newline < 0) return;
+      socket.destroy(); resolve(JSON.parse(input.slice(0, newline)));
+    });
+    socket.on("connect", () => socket.write(payload));
+  });
+}
+
 async function startDaemon(): Promise<void> {
   daemon = spawn("./scripts/node-ts.sh", ["daemon/src/main.ts"], {
     cwd: process.cwd(),
@@ -122,7 +134,7 @@ test("daemon RPC smoke test uses the real process and private XDG state", async 
   assert.equal(status.provider, "fake");
   assert.equal(status.account, null);
   assert.equal(status.connectionError, "");
-  assert.equal(status.version, "0.3.0-alpha.2");
+  assert.equal(status.version, "1.0.0");
   assert.equal(status.apiVersion, 1);
   assert.equal(typeof status.checkedAt, "number");
   assert.equal(typeof status.cacheBytes, "number");
@@ -164,6 +176,14 @@ test("RPC write commits through persistent staging and emits Watch transfer even
 
 test("CancelTransfer rejects unknown transfers over RPC", async () => {
   await assert.rejects(rpc(socketPath, "CancelTransfer", { transferId: "no-such-transfer" }), /Unknown transfer/);
+});
+
+test("malformed RPC values return errors without terminating the daemon", async () => {
+  for (const payload of ["null\n", "[]\n", '{"id":1,"method":4,"params":{}}\n', '{"id":1,"method":"GetStatus","params":[]}\n']) {
+    const response = await rawRpc(socketPath, payload);
+    assert.equal(typeof response.error?.message, "string");
+  }
+  assert.equal((await rpc(socketPath, "GetStatus")).connected, true);
 });
 
 test("daemon restart preserves a dirty staged write", async () => {
