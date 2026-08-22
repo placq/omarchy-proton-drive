@@ -35,6 +35,8 @@ BarWidget {
     property int cacheClearRetainedFiles: 0
     property int cacheClearClearedPinnedFiles: 0
     property int cacheClearRetainedUnsafeFiles: 0
+    property Item cacheTooltipTarget: null
+    property string cacheTooltipText: ""
     readonly property string statusLabel: {
         if (driveService && driveService.lastError !== "") return root.l10n("Wymaga uwagi", "Needs attention")
         if (loading) return root.l10n("Uruchamianie Proton Drive…", "Starting Proton Drive…")
@@ -66,6 +68,15 @@ BarWidget {
     }
     function clearCache() { root.startCacheAction("disposable") }
     function clearPinnedCache() { root.startCacheAction("pinned") }
+    function showCacheTooltip(target, text) {
+        root.cacheTooltipTarget=target
+        root.cacheTooltipText=text
+    }
+    function hideCacheTooltip(target) {
+        if (root.cacheTooltipTarget !== target) return
+        root.cacheTooltipTarget=null
+        root.cacheTooltipText=""
+    }
     function finishCacheClear() {
         root.cacheActionRunning=false
         if (!root.cacheClearSucceeded) {
@@ -497,11 +508,15 @@ Rectangle {
                     foreground: Color.popups.text
                     fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
                     fontSize: Style.font.caption
-                    tooltipText: "Removes temporary local cache. Always-available files and unsaved changes are kept."
+                    onHovered: function(isHovered) {
+                        if (isHovered) root.showCacheTooltip(clearCacheButton, "Removes temporary local cache. Always-available files and unsaved changes are kept.")
+                        else root.hideCacheTooltip(clearCacheButton)
+                    }
                     onClicked: root.clearCache()
                 }
 
                 Button {
+                    id: clearPinnedCacheButton
                     width: parent.width
                     text: root.cacheActionRunning && root.cacheActionKind === "pinned"
                         ? root.l10n("Usuwanie plików offline…", "Removing offline files…")
@@ -511,7 +526,10 @@ Rectangle {
                     foreground: Color.popups.text
                     fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
                     fontSize: Style.font.caption
-                    tooltipText: "Removes Always available local copies. Cloud files and unsaved changes are kept."
+                    onHovered: function(isHovered) {
+                        if (isHovered) root.showCacheTooltip(clearPinnedCacheButton, "Removes Always available local copies. Cloud files and unsaved changes are kept.")
+                        else root.hideCacheTooltip(clearPinnedCacheButton)
+                    }
                     onClicked: root.clearPinnedCache()
                 }
             }
@@ -615,6 +633,36 @@ Rectangle {
                 horizontalAlignment: Text.AlignHCenter
             }
         }
+
+        Rectangle {
+            id: cacheTooltipBubble
+            z: 100
+            visible: root.popupOpen && root.cacheTooltipTarget !== null && root.cacheTooltipText !== ""
+            width: Math.min(parent.width, Style.space(280))
+            height: cacheTooltipLabel.implicitHeight + Style.space(16)
+            x: Math.round((parent.width - width) / 2)
+            y: {
+                if (!root.cacheTooltipTarget) return 0
+                const point=root.cacheTooltipTarget.mapToItem(parent, 0, 0)
+                return Math.max(0, Math.min(parent.height - height, point.y - height - Style.space(5)))
+            }
+            color: Color.tooltip.background
+            border.color: Color.tooltip.border
+            border.width: 1
+            radius: Style.cornerRadius
+
+            Text {
+                id: cacheTooltipLabel
+                anchors.centerIn: parent
+                width: parent.width - Style.space(16)
+                text: root.cacheTooltipText
+                color: Color.tooltip.text
+                font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                font.pixelSize: Style.font.bodySmall
+                wrapMode: Text.WordWrap
+                horizontalAlignment: Text.AlignHCenter
+            }
         }
     }
+}
 }
