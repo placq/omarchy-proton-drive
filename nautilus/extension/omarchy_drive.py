@@ -21,7 +21,7 @@ THUMBNAIL_WORK = ThumbnailWorkCache()
 LANGUAGE = (os.environ.get("LC_ALL") or os.environ.get("LC_MESSAGES") or os.environ.get("LANG") or "en").lower()
 
 def l10n(polish, english):
-    return polish if LANGUAGE.startswith("pl") else english
+    return english
 
 def warn(context, error):
     # OSError and RPC messages can contain a full URI or Proton filename.

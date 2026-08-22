@@ -22,9 +22,9 @@ Item {
     property string connectionError: ""
     property bool loading: true
     property bool integrationFailed: false
-    readonly property string uiLanguage: Qt.locale().name.toLowerCase().startsWith("pl") ? "pl" : "en"
+    readonly property string uiLanguage: "en"
 
-    function l10n(polish, english) { return root.uiLanguage === "pl" ? polish : english }
+    function l10n(polish, english) { return english }
 
     // This service consumes the daemon's raw Watch stream: it carries strictly
     // more information (conflict names/errors, authenticated state) than the

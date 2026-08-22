@@ -85,7 +85,7 @@ The first-run flow is:
 
 1. Install the plugin and native integration.
 2. Click the Proton icon on the right side of the bar.
-3. Click **Zaloguj się** in the panel and complete Proton authentication in the browser.
+3. Click **Sign in** in the panel and complete Proton authentication in the browser.
 4. Return to Omarchy after authentication succeeds.
 5. Return to the bar and see the active Proton icon.
 
@@ -99,6 +99,13 @@ The widget uses these status indicators:
 | Proton icon with a status dot | Transfer or synchronization is active |
 
 The status card shows account identity, remote storage usage, connection state, transfers and safe local-cache controls. Proton Drive remains available as a single Nautilus sidebar bookmark. Real cloud files can be browsed, opened, created, edited, moved, renamed and trashed. Offline edits remain staged locally and are retried after reconnect; a changed remote revision creates a preserved local conflict copy.
+
+### Cache controls
+
+- **Free local space** removes clean, unpinned cache files to reclaim disk space. Files marked **Always available** and unsaved local changes are retained.
+- **Remove “Always available” files** removes local copies marked for offline use and unpins them. The remote files remain in Proton Drive and unsaved, queued or conflicted local changes are retained.
+
+Neither action deletes remote Proton Drive data.
 
 ## Development
 

@@ -18,7 +18,8 @@ BarWidget {
         && (driveService.transfers.length > 0 || root.clearingCache)
     readonly property bool deleting: connected && driveService
         && driveService.transfers.some(item => item.direction === "trash")
-    readonly property string uiLanguage: Qt.locale().name.toLowerCase().startsWith("pl") ? "pl" : "en"
+    // Keep the integration UI consistent across Omarchy locales.
+    readonly property string uiLanguage: "en"
     readonly property color logsLinkColor: {
         const background=Color.popups.background
         const luminance=0.2126 * background.r + 0.7152 * background.g + 0.0722 * background.b
@@ -49,7 +50,7 @@ BarWidget {
     property bool popupOpen: false
 
     function close() { popupOpen = false }
-    function l10n(polish, english) { return root.uiLanguage === "pl" ? polish : english }
+    function l10n(polish, english) { return english }
     function startCacheAction(kind) {
         if (root.cacheActionRunning) return
         root.cacheActionKind=kind
@@ -70,11 +71,7 @@ BarWidget {
         if (!root.cacheClearSucceeded) {
             root.cacheActionMessage=root.l10n("Nie udało się wyczyścić pamięci podręcznej.", "Could not clear the cache.")
         } else if (root.cacheActionKind === "pinned") {
-            root.cacheActionMessage=root.uiLanguage === "pl"
-                ? "Usunięto " + root.cacheClearClearedPinnedFiles
-                    + (root.cacheClearClearedPinnedFiles === 1 ? " plik offline" : " plików offline")
-                    + " · zwolniono " + root.formatBytes(root.cacheClearFreedBytes) + "."
-                : "Removed " + root.cacheClearClearedPinnedFiles
+            root.cacheActionMessage="Removed " + root.cacheClearClearedPinnedFiles
                     + (root.cacheClearClearedPinnedFiles === 1 ? " offline file" : " offline files")
                     + " · freed " + root.formatBytes(root.cacheClearFreedBytes) + "."
             if (root.cacheClearRetainedUnsafeFiles > 0)
@@ -82,12 +79,7 @@ BarWidget {
                     " Zachowano niezapisane pliki: " + root.cacheClearRetainedUnsafeFiles + ".",
                     " Unsaved files retained: " + root.cacheClearRetainedUnsafeFiles + ".")
         } else if (root.cacheClearRetainedBytes > 0) {
-            root.cacheActionMessage=root.uiLanguage === "pl"
-                ? "Pozostało " + root.formatBytes(root.cacheClearRetainedBytes)
-                    + (root.cacheClearRetainedFiles === 1
-                        ? " · 1 plik dostępny offline."
-                        : " · " + root.cacheClearRetainedFiles + " plików dostępnych offline.")
-                : root.formatBytes(root.cacheClearRetainedBytes) + " retained"
+            root.cacheActionMessage=root.formatBytes(root.cacheClearRetainedBytes) + " retained"
                     + (root.cacheClearRetainedFiles === 1
                         ? " · 1 offline file."
                         : " · " + root.cacheClearRetainedFiles + " offline files.")
@@ -505,6 +497,9 @@ Rectangle {
                     foreground: Color.popups.text
                     fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
                     fontSize: Style.font.caption
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 450
+                    ToolTip.text: "Removes clean, unpinned cache files to free disk space. Always-available files and unsaved changes are kept."
                     onClicked: root.clearCache()
                 }
 
@@ -518,6 +513,9 @@ Rectangle {
                     foreground: Color.popups.text
                     fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
                     fontSize: Style.font.caption
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 450
+                    ToolTip.text: "Removes local copies marked Always available and unpins them. Cloud files and unsaved changes are kept."
                     onClicked: root.clearPinnedCache()
                 }
             }
