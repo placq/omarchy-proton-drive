@@ -7,7 +7,7 @@ Proton Drive for Omarchy is an unofficial third-party integration for Proton Dri
 ## Requirements
 
 - Omarchy Quattro on Arch Linux;
-- a dedicated Proton account for pre-release testing;
+- a dedicated Proton account for real-account testing;
 - Git, Bun and `makepkg` for source installation;
 - the runtime dependencies declared by the Arch package: FUSE3, GNOME Desktop 4, libsecret, Nautilus and nautilus-python, python-dbus-next, python-pyfuse3 and python-trio.
 
@@ -102,7 +102,7 @@ npm run validate
 OMARCHY_DRIVE_PROVIDER=fake npm run start:fake
 ```
 
-See [architecture](docs/ARCHITECTURE.md), [D-Bus API](docs/DBUS-API.md), [development roadmap](docs/ROADMAP.md), [security model](docs/SECURITY.md), [test status](docs/TEST-STATUS.md), [dependencies](docs/DEPENDENCIES.md), [marketplace preparation](docs/MARKETPLACE.md), and [next work](NEXT.md).
+See [architecture](docs/ARCHITECTURE.md), [D-Bus API](docs/DBUS-API.md), [development guide](docs/DEVELOPMENT.md), [security model](docs/SECURITY.md), [test status](docs/TEST-STATUS.md), [installation acceptance](docs/INSTALLATION-TEST.md), and [dependencies](docs/DEPENDENCIES.md).
 
 The guarded release-gate runners are `scripts/real_account_recovery.py` for the dedicated Proton account and `scripts/clean-machine-acceptance.sh` for a checksummed artifact on a clean Quattro machine. Their presence is not itself a passed release gate; acceptance requires the target-machine evidence described in `docs/INSTALLATION-TEST.md`.
 
