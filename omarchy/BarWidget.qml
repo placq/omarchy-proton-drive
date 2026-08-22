@@ -50,8 +50,11 @@ BarWidget {
             : root.l10n("Wymagane logowanie", "Sign-in required")
     }
     property bool popupOpen: false
+    readonly property bool opened: popupOpen
 
+    function open() { popupOpen = true }
     function close() { popupOpen = false }
+    function toggle() { popupOpen = !popupOpen }
     function l10n(polish, english) { return english }
     function startCacheAction(kind) {
         if (root.cacheActionRunning) return
@@ -633,6 +636,7 @@ Rectangle {
                 horizontalAlignment: Text.AlignHCenter
             }
         }
+        }
 
         Rectangle {
             id: cacheTooltipBubble
@@ -663,6 +667,5 @@ Rectangle {
                 horizontalAlignment: Text.AlignHCenter
             }
         }
-    }
 }
 }
