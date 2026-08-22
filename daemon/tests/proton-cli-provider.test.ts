@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { cliExecutionLimits, OfficialCliProvider } from "../src/official-cli-provider.ts";
-import { writeFile } from "node:fs/promises";
+import { unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { AuthenticationRequiredError, OfflineError } from "../src/domain.ts";
@@ -136,6 +136,8 @@ test("official CLI provider performs guarded revision uploads and native mutatio
 
 test("official CLI provider refuses a stale revision before invoking upload", async () => {
   let uploaded = false;
+  const source = join(tmpdir(), `omarchy-drive-stale-${Date.now()}.txt`);
+  await writeFile(source, "x");
   const provider = new OfficialCliProvider("/unused", async args => {
     if (args.includes("filesystem") && args.includes("info")) {
       return args.at(-1) === "/my-files"
@@ -146,9 +148,15 @@ test("official CLI provider refuses a stale revision before invoking upload", as
     if (args.includes("filesystem") && args.includes("list")) return [{ uid: "file", parentUid: "root", name: { ok: true, value: "note.txt" }, type: "file", activeRevision: { uid: "remote-rev" } }];
     return { uid: "root", name: { ok: true, value: "root" }, type: "folder" };
   });
-  await assert.rejects(
-    provider.upload({ parentId: "root", nodeId: "file", name: "note.txt", sourcePath: "/tmp/source", expectedSize: 1, expectedRevision: "old-rev", modifiedAt: Date.now() }),
-    /Remote revision changed/,
-  );
+  try {
+    await assert.rejects(
+      provider.upload({
+        parentId: "root", nodeId: "file", name: "note.txt", sourcePath: source, expectedSize: 1,
+        expectedRevision: "old-rev", modifiedAt: Date.now(),
+        knownRemote: { id: "file", parentId: "root", name: "note.txt", kind: "file", size: 1, modifiedAt: 1, revision: "old-rev" },
+      }),
+      /Remote revision changed/,
+    );
+  } finally { await unlink(source); }
   assert.equal(uploaded, false);
 });

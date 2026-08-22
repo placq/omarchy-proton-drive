@@ -42,9 +42,11 @@ export class RpcServer {
   private accountConnectionError = "";
   private accountCheckedAt = 0;
   private accountRefresh?: Promise<void>;
-  constructor(engine: DriveEngine, socketPath: string) {
+  private readonly timeoutMs: number;
+  constructor(engine: DriveEngine, socketPath: string, timeoutMs = RPC_TIMEOUT_MS) {
     this.engine = engine;
     this.socketPath = socketPath;
+    this.timeoutMs = timeoutMs;
   }
   private async refreshAccount(priority: RequestPriority): Promise<void> {
     if (!this.engine.provider.getAccountInfo) {
@@ -111,6 +113,9 @@ export class RpcServer {
     });
   }
   private async reply(socket: Socket, line: string): Promise<void> {
+    const disconnected = new AbortController();
+    const abortDisconnected = () => disconnected.abort();
+    socket.once("close", abortDisconnected);
     let parsed: unknown;
     try { parsed = JSON.parse(line); }
     catch { socket.end(JSON.stringify({ id: null, error: { code: "BAD_JSON", message: "Invalid JSON" } }) + "\n"); return; }
@@ -134,32 +139,41 @@ export class RpcServer {
         };
         this.engine.on("nodeChanged", nodeChanged); this.engine.transfers.on("changed", transferChanged);
         socket.on("close", () => { this.engine.off("nodeChanged", nodeChanged); this.engine.transfers.off("changed", transferChanged); });
-        const status = await this.boundedDispatch("GetStatus", {}) as { conflicts?: unknown };
+        const status = await this.boundedDispatch("GetStatus", {}, disconnected.signal) as { conflicts?: unknown };
         write("Status", status);
         if (Array.isArray(status.conflicts)) for (const conflict of status.conflicts) if (conflict && typeof conflict === "object" && "nodeId" in conflict) { conflicts.add(String((conflict as { nodeId: unknown }).nodeId)); write("Conflict", conflict); }
         this.engine.on("nodeChanged", syncConflict);
         socket.on("close", () => this.engine.off("nodeChanged", syncConflict));
         return;
       }
-      const result = await this.boundedDispatch(request.method, request.params ?? {});
+      const result = await this.boundedDispatch(request.method, request.params ?? {}, disconnected.signal);
       socket.end(JSON.stringify({ id: requestId, result }) + "\n");
     } catch (error) {
       if (!socket.destroyed) socket.end(JSON.stringify({ id: requestId, error: { code: error instanceof Error ? error.name : "ERROR", message: error instanceof Error ? error.message : String(error) } }) + "\n");
     }
   }
-  private async boundedDispatch(method: string, params: Record<string, unknown>): Promise<unknown> {
-    let timer: ReturnType<typeof setTimeout> | undefined;
+  private async boundedDispatch(method: string, params: Record<string, unknown>, externalSignal?: AbortSignal): Promise<unknown> {
+    const controller = new AbortController();
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; controller.abort(); }, this.timeoutMs);
+    const abort = () => controller.abort(externalSignal?.reason);
+    if (externalSignal?.aborted) abort();
+    else externalSignal?.addEventListener("abort", abort, { once: true });
     try {
-      return await Promise.race([
-        this.dispatch(method, params),
-        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`RPC operation timed out: ${method}`)), RPC_TIMEOUT_MS); }),
-      ]);
-    } finally { if (timer) clearTimeout(timer); }
+      return await this.dispatch(method, params, controller.signal);
+    } catch (error) {
+      if (timedOut) {
+        const timeout = new Error(`RPC operation timed out and was cancelled: ${method}`);
+        timeout.name = "TimeoutError";
+        throw timeout;
+      }
+      throw error;
+    } finally { clearTimeout(timer); externalSignal?.removeEventListener("abort", abort); }
   }
-  private async dispatch(method: string, p: Record<string, unknown>): Promise<unknown> {
+  private async dispatch(method: string, p: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
     const id = () => requiredId(p.nodeId, "nodeId");
     switch (method) {
-      case "GetVersion": return { version: "1.0.0", apiVersion: 1, provider: this.engine.provider.kind, readOnly: false };
+      case "GetVersion": return { version: "1.0.1", apiVersion: 1, provider: this.engine.provider.kind, readOnly: false };
       case "GetStatus": {
         const { account, connectionError, checkedAt } = await this.accountStatus();
         const authenticated = this.engine.provider.kind === "fake" || account !== null;
@@ -167,7 +181,7 @@ export class RpcServer {
           connected: authenticated && connectionError === "", authenticated,
           readOnly: false, provider: this.engine.provider.kind,
           account, connectionError, checkedAt, cacheBytes: await this.engine.cacheUsage(),
-          version: "1.0.0", apiVersion: 1, transfers: this.engine.transfers.list(true),
+          version: "1.0.1", apiVersion: 1, transfers: this.engine.transfers.list(true),
           conflicts: this.engine.conflicts(),
         };
       }
@@ -185,13 +199,13 @@ export class RpcServer {
       case "SetPinned": return this.engine.pin(id(), Boolean(p.pinned));
       case "Evict": return this.engine.evict(id());
       case "Retry": return this.engine.retry(id());
-      case "CreateFolder": return this.engine.createFolder(requiredId(p.parentId, "parentId"), requiredName(p.name));
-      case "CreateFile": return this.engine.createFile(requiredId(p.parentId, "parentId"), requiredName(p.name), new Uint8Array());
-      case "Rename": return this.engine.rename(id(), requiredName(p.name));
-      case "Move": return this.engine.move(id(), requiredId(p.parentId, "parentId"));
-      case "Replace": return this.engine.replace(id(), requiredId(p.destinationId, "destinationId"));
-      case "Trash": await this.engine.trash(id()); return null;
-      case "ResolveConflict": return this.engine.resolveConflict(id(), conflictResolution(p.resolution), p.copyName === undefined ? undefined : requiredName(p.copyName));
+      case "CreateFolder": return this.engine.createFolder(requiredId(p.parentId, "parentId"), requiredName(p.name), signal);
+      case "CreateFile": return this.engine.createFile(requiredId(p.parentId, "parentId"), requiredName(p.name), new Uint8Array(), signal);
+      case "Rename": return this.engine.rename(id(), requiredName(p.name), signal);
+      case "Move": return this.engine.move(id(), requiredId(p.parentId, "parentId"), signal);
+      case "Replace": return this.engine.replace(id(), requiredId(p.destinationId, "destinationId"), signal);
+      case "Trash": await this.engine.trash(id(), signal); return null;
+      case "ResolveConflict": return this.engine.resolveConflict(id(), conflictResolution(p.resolution), p.copyName === undefined ? undefined : requiredName(p.copyName), signal);
       case "GetTransfers": return this.engine.transfers.list();
       case "CancelTransfer": return this.engine.cancelQueuedUpload(requiredId(p.transferId, "transferId"));
       case "Sync": await this.engine.syncQueued(); await this.engine.processEvents(); return null;

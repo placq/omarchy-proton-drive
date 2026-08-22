@@ -30,7 +30,7 @@ Item {
     // more information (conflict names/errors, authenticated state) than the
     // session D-Bus signal surface, which remains for external consumers.
     function applyStatus(data) {
-        const expectedVersion=root.manifest && root.manifest.version ? root.manifest.version : "1.0.0"
+        const expectedVersion=root.manifest && root.manifest.version ? root.manifest.version : "1.0.1"
         if (Number(data.apiVersion || 0) !== 1 || String(data.version || "") !== String(expectedVersion)) {
             root.connected=false
             root.loading=false

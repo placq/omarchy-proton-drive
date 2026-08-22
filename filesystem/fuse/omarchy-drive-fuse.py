@@ -189,7 +189,13 @@ class Operations(pyfuse3.Operations):
         entry=await self.lookup(parent_inode, name, ctx); await self.call("Trash", nodeId=self.inode_to_node[entry.st_ino]["id"]); self.update_directory_snapshots(parent_inode, removed_name=os.fsdecode(name))
     async def rmdir(self, parent_inode, name, ctx):
         if self.read_only: raise pyfuse3.FUSEError(errno.EROFS)
-        await self.unlink(parent_inode, name, ctx)
+        entry=await self.lookup(parent_inode, name, ctx)
+        node=self.inode_to_node[entry.st_ino]
+        if node.get("kind") != "folder": raise pyfuse3.FUSEError(errno.ENOTDIR)
+        children=await self.call("ListChildren", nodeId=node["id"])
+        if children: raise pyfuse3.FUSEError(errno.ENOTEMPTY)
+        await self.call("Trash", nodeId=node["id"])
+        self.update_directory_snapshots(parent_inode, removed_name=os.fsdecode(name))
     async def symlink(self, parent_inode, name, target, ctx):
         raise pyfuse3.FUSEError(errno.EOPNOTSUPP)
     async def readlink(self, inode, ctx):

@@ -1,4 +1,4 @@
-import { access, chmod, copyFile, mkdir, open, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
+import { access, chmod, copyFile, mkdir, open, readFile, readdir, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { basename, dirname, join, resolve } from "node:path";
 
@@ -34,6 +34,8 @@ export class LocalStorage {
   }
   async initialize(): Promise<void> { await Promise.all([ensurePrivate(this.cacheContent), ensurePrivate(this.staging), ensurePrivate(this.conflicts)]); }
   cachePath(id: string): string { return join(this.cacheContent, safeId(id)); }
+  ownsCachePath(path?: string): boolean { return Boolean(path) && dirname(resolve(path!)) === this.cacheContent; }
+  ownsStagingPath(path?: string): boolean { return Boolean(path) && dirname(resolve(path!)) === this.staging; }
   downloadPath(id: string): string { return join(this.cacheContent, `.${safeId(id)}-${process.pid}.download`); }
   stagingPath(id: string): string { return join(this.staging, safeId(id)); }
   conflictPath(id: string, name: string): string {
@@ -90,5 +92,16 @@ export class LocalStorage {
   }
   async exists(path?: string): Promise<boolean> { if (!path) return false; try { await access(path); return true; } catch { return false; } }
   async remove(path?: string): Promise<void> { if (!path) return; try { await unlink(path); } catch (e) { if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e; } }
+  async pruneCache(allowedPaths: Iterable<string>): Promise<number> {
+    const allowed = new Set(Array.from(allowedPaths, (path) => resolve(path)));
+    let removed = 0;
+    for (const entry of await readdir(this.cacheContent, { withFileTypes: true })) {
+      const path = join(this.cacheContent, entry.name);
+      if (allowed.has(resolve(path))) continue;
+      await rm(path, { recursive: true, force: true });
+      removed += 1;
+    }
+    return removed;
+  }
   async preserveConflict(stagingPath: string, nodeId: string, name: string): Promise<string> { const target = this.conflictPath(nodeId, name); await copyFile(stagingPath, target); await chmod(target, 0o600); return target; }
 }

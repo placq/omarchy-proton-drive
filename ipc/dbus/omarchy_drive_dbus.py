@@ -12,7 +12,8 @@ from dbus_next.service import ServiceInterface, method, signal
 BUS_NAME = "io.github.placq.OmarchyProtonDrive1"
 OBJECT_PATH = "/io/github/placq/OmarchyProtonDrive1"
 SOCKET_PATH = os.environ.get("OMARCHY_DRIVE_SOCKET", f"{os.environ.get('XDG_RUNTIME_DIR', '/tmp')}/omarchy-drive.sock")
-MOUNT_PATH = Path(os.environ.get("OMARCHY_DRIVE_MOUNT", str(Path.home() / ".local/share/omarchy-drive/mount"))).expanduser()
+DATA_HOME = Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share")))
+MOUNT_PATH = Path(os.environ.get("OMARCHY_DRIVE_MOUNT", str(DATA_HOME / "omarchy-drive/mount"))).expanduser()
 RPC_CLIENT = RpcClient(SOCKET_PATH)
 
 def rpc(method_name: str, **params):

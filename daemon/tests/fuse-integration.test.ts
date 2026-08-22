@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, unlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rename, rm, rmdir, symlink, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { connect } from "node:net";
@@ -106,6 +106,8 @@ test("FUSE waits for daemon startup and handles operations plus hostile names", 
 
     assert.deepEqual((await readdir(mount)).sort(), ["Documents"]);
     assert.match(await readFile(join(mount, "Documents/Welcome.txt"), "utf8"), /fake provider/);
+    await assert.rejects(rmdir(join(mount, "Documents")), (error: NodeJS.ErrnoException) => error.code === "ENOTEMPTY");
+    assert.match(await readFile(join(mount, "Documents/Welcome.txt"), "utf8"), /fake provider/);
     const genericTrash = spawnSync("gio", ["trash", join(mount, "Documents/Welcome.txt")], { encoding: "utf8" });
     assert.notEqual(genericTrash.status, 0);
     assert.doesNotMatch((await readdir(mount)).join("\n"), /^\.Trash(?:-|$)/m);
@@ -149,6 +151,8 @@ test("FUSE waits for daemon startup and handles operations plus hostile names", 
     assert.equal(await readFile(join(mount, "Documents/Moved/renamed.txt"), "utf8"), "uploaded through FUSE\n");
     await unlink(join(mount, "Documents/Moved/renamed.txt"));
     await assert.rejects(readFile(join(mount, "Documents/Moved/renamed.txt")));
+    await rmdir(join(mount, "Documents/Moved"));
+    await assert.rejects(readdir(join(mount, "Documents/Moved")));
   } finally {
     try { execFileSync("fusermount3", ["-u", mount], { stdio: "ignore" }); } catch { /* already unmounted */ }
     await stopProcess(fuse);

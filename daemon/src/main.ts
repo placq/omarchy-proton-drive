@@ -34,7 +34,7 @@ if (!["fake", "proton-cli"].includes(providerName)) {
   await server.listen();
   const runMaintenance = async () => {
     try { await engine.maintenanceCycle(maxCacheBytes); }
-    catch (error) { console.error(JSON.stringify({ level: "warn", event: "maintenance_failed", error: error instanceof Error ? error.message : String(error) })); }
+    catch (error) { const detail = error as Error & { code?: string }; console.error(JSON.stringify({ level: "warn", event: "maintenance_failed", code: detail?.code ?? detail?.name ?? "Error" })); }
     setTimeout(() => { void runMaintenance(); }, maintenanceIntervalMs).unref();
   };
   // Give interactive filesystem and status requests a clear queue after

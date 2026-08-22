@@ -11,7 +11,8 @@ gi.require_version("Nautilus", "4.1")
 from gi.repository import GnomeDesktop, GObject, Nautilus
 from drive_logic import ThumbnailWorkCache, drive_path, node_id, node_status, thumbnail_relevant
 
-MOUNT = Path(os.environ.get("OMARCHY_DRIVE_MOUNT", str(Path.home()/".local/share/omarchy-drive/mount"))).resolve()
+DATA_HOME = Path(os.environ.get("XDG_DATA_HOME", str(Path.home()/".local/share")))
+MOUNT = Path(os.environ.get("OMARCHY_DRIVE_MOUNT", str(DATA_HOME/"omarchy-drive/mount"))).resolve()
 SOCKET = os.environ.get("OMARCHY_DRIVE_SOCKET", f"{os.environ.get('XDG_RUNTIME_DIR', '/tmp')}/omarchy-drive.sock")
 RPC_CLIENT = RpcClient(SOCKET, timeout=.25)
 EMBLEMS = {"cached":"emblem-default", "pinned":"emblem-favorite", "downloading":"emblem-synchronizing", "uploading":"emblem-synchronizing", "dirty":"emblem-synchronizing", "queued":"emblem-synchronizing", "conflict":"emblem-important", "error":"emblem-important"}
@@ -23,7 +24,9 @@ def l10n(polish, english):
     return polish if LANGUAGE.startswith("pl") else english
 
 def warn(context, error):
-    print(f"omarchy-drive: {context}: {error}", file=sys.stderr)
+    # OSError and RPC messages can contain a full URI or Proton filename.
+    # The exception class is sufficient to diagnose extension failures.
+    print(f"omarchy-drive: {context}: {type(error).__name__}", file=sys.stderr)
 
 def suppress_automatic_thumbnail(uri, path, status, mime_type):
     if not thumbnail_relevant(mime_type): return
@@ -65,7 +68,7 @@ class OmarchyDriveExtension(GObject.GObject, Nautilus.MenuProvider, Nautilus.Inf
             emblem=EMBLEMS.get(status)
             if emblem: info.add_emblem(emblem)
         except (OSError, RuntimeError, ValueError) as error:
-            warn(f"status update failed for {info.get_uri()}", error)
+            warn("status update failed", error)
     def get_file_items(self, files):
         selected=[]; states=[]
         for info in files:
@@ -74,7 +77,7 @@ class OmarchyDriveExtension(GObject.GObject, Nautilus.MenuProvider, Nautilus.Inf
             try:
                 selected.append(node_id(path)); states.append({"status": node_status(path)})
             except (OSError, RuntimeError, ValueError) as error:
-                warn(f"menu state failed for {info.get_uri()}", error)
+                warn("menu state failed", error)
                 return []
         root=Nautilus.MenuItem(
             name="OmarchyDrive::root",

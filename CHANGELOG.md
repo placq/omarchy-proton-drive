@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.1 (unreleased)
+
+- Separate cached-content revisions from current remote metadata and invalidate stale or unverifiable cache bytes before they can become an upload base.
+- Refuse non-empty FUSE `rmdir`, remove local cache on Proton trash, and prune orphaned cache downloads at startup.
+- Refresh the official CLI revision guard immediately before upload and cancel cooperative remote mutations when the RPC deadline or client connection ends.
+- Serialize login/logout against all integration CLI users, make the mount path XDG-consistent, redact Nautilus failure details, and harden the FUSE service.
+- Audit the complete npm dependency tree instead of excluding the build and test toolchain.
+
 ## 1.0.0
 
 - Promote the synchronized daemon, CLI, package and Quattro manifest version to the first stable semantic version.

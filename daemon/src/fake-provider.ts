@@ -83,14 +83,17 @@ export class FakeDriveProvider implements DriveProvider {
     this.emit("created", node);
     return node;
   }
-  async createFolder(parentId: string, name: string): Promise<DriveNode> { this.assertOnline(); const n = this.addFolder(parentId, name); this.emit("created", n); return n; }
-  async rename(nodeId: string, name: string): Promise<DriveNode> {
+  async createFolder(parentId: string, name: string, signal?: AbortSignal): Promise<DriveNode> { this.assertOnline(); signal?.throwIfAborted(); const n = this.addFolder(parentId, name); this.emit("created", n); return n; }
+  async rename(nodeId: string, name: string, _knownNode?: DriveNode, signal?: AbortSignal): Promise<DriveNode> {
+    signal?.throwIfAborted();
     this.assertOnline(); const item = this.entry(nodeId); item.node = { ...item.node, name, revision: this.revision(item.node.revision), modifiedAt: Date.now() }; this.emit("updated", item.node); return structuredClone(item.node);
   }
-  async move(nodeId: string, parentId: string): Promise<DriveNode> {
+  async move(nodeId: string, parentId: string, _knownNode?: DriveNode, signal?: AbortSignal): Promise<DriveNode> {
+    signal?.throwIfAborted();
     this.assertOnline(); this.entry(parentId); const item = this.entry(nodeId); item.node = { ...item.node, parentId, revision: this.revision(item.node.revision), modifiedAt: Date.now() }; this.emit("moved", item.node); return structuredClone(item.node);
   }
-  async trash(nodeId: string): Promise<void> {
+  async trash(nodeId: string, signal?: AbortSignal): Promise<void> {
+    signal?.throwIfAborted();
     this.assertOnline(); const item = this.entry(nodeId); const ids = [nodeId];
     for (let index = 0; index < ids.length; index += 1) {
       for (const [id, child] of this.entries) if (!child.trashed && child.node.parentId === ids[index]) ids.push(id);

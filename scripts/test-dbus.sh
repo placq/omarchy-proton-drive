@@ -50,7 +50,7 @@ dbus-run-session -- bash -eu -o pipefail -c '
     kill -0 "$bridge_pid" 2>/dev/null || { sed -n '\''1,120p'\'' "$1/dbus.log" >&2; exit 1; }
     sleep 0.05
   done
-  grep -q '\''1.0.0'\'' "$1/version.out"
+  grep -q '\''1.0.1'\'' "$1/version.out"
   gdbus call --session --dest io.github.placq.OmarchyProtonDrive1 --object-path /io/github/placq/OmarchyProtonDrive1 --method io.github.placq.OmarchyProtonDrive1.GetStatus | grep -q '\''"connected": true'\''
   introspect=$(gdbus introspect --session --dest io.github.placq.OmarchyProtonDrive1 --object-path /io/github/placq/OmarchyProtonDrive1)
   for signal in ConflictDetected ConflictResolved AuthRequired; do

@@ -204,8 +204,8 @@ export class OfficialCliProvider implements DriveProvider {
     });
   }
 
-  async downloadToPath(nodeId: string, targetPath: string, onProgress?: (done: number, total: number) => void, knownNode?: DriveNode): Promise<DownloadResult> {
-    const node = knownNode ?? await this.getNode(nodeId);
+  async downloadToPath(nodeId: string, targetPath: string, onProgress?: (done: number, total: number) => void, _knownNode?: DriveNode): Promise<DownloadResult> {
+    const node = await this.getNode(nodeId);
     if (node.kind !== "file") throw new Error("Cannot download a folder as a file");
     const temporary = await mkdtemp(join(dirname(targetPath), ".proton-cli-download-"));
     try {
@@ -214,6 +214,8 @@ export class OfficialCliProvider implements DriveProvider {
       if (entries.length !== 1) throw new Error(`Official Proton Drive CLI produced ${entries.length} download entries`);
       await rename(join(temporary, entries[0]!), targetPath);
       await chmod(targetPath, 0o600);
+      const confirmed = await this.getNode(nodeId);
+      if (confirmed.revision !== node.revision) throw new ConflictError("Remote revision changed while downloading");
       onProgress?.(node.size, node.size);
       return { revision: node.revision };
     } finally {
@@ -233,10 +235,6 @@ export class OfficialCliProvider implements DriveProvider {
 
   async upload(input: UploadInput): Promise<DriveNode> {
     const parentPath = await this.pathFor(input.parentId);
-    if (input.nodeId && input.expectedRevision) {
-      const remote = input.knownRemote ?? await this.getNode(input.nodeId);
-      if (remote.revision !== input.expectedRevision) throw new ConflictError();
-    }
     if (!input.nodeId && (await this.listChildren(input.parentId)).some(node => node.name === input.name)) {
       throw new Error(`A Proton Drive node named ${input.name} already exists`);
     }
@@ -248,6 +246,13 @@ export class OfficialCliProvider implements DriveProvider {
       try { await link(input.sourcePath, namedSource); }
       catch { await copyFile(input.sourcePath, namedSource); }
       await chmod(namedSource, 0o600);
+      if (input.nodeId && input.expectedRevision) {
+        input.signal?.throwIfAborted();
+        // Do not trust the engine's earlier snapshot here. Refresh only after
+        // all local preparation, immediately before the CLI mutation.
+        const remote = await this.getNode(input.nodeId);
+        if (remote.revision !== input.expectedRevision) throw new ConflictError();
+      }
       await this.mutation(["filesystem", "upload", "-f", strategy, "-t", namedSource, parentPath], input.signal);
     } finally {
       await rm(uploadDirectory, { recursive: true, force: true });
@@ -257,33 +262,33 @@ export class OfficialCliProvider implements DriveProvider {
     return this.childByName(input.parentId, input.name);
   }
 
-  async createFolder(parentId: string, name: string): Promise<DriveNode> {
-    await this.mutation(["filesystem", "create-folder", await this.pathFor(parentId), name]);
+  async createFolder(parentId: string, name: string, signal?: AbortSignal): Promise<DriveNode> {
+    await this.mutation(["filesystem", "create-folder", await this.pathFor(parentId), name], signal);
     return this.childByName(parentId, name);
   }
 
-  async rename(nodeId: string, name: string, knownNode?: DriveNode): Promise<DriveNode> {
+  async rename(nodeId: string, name: string, knownNode?: DriveNode, signal?: AbortSignal): Promise<DriveNode> {
     const current = knownNode ?? await this.getNode(nodeId);
     const oldPath = await this.pathFor(nodeId);
     if (!current.parentId) throw new Error("The Proton Drive root cannot be renamed");
     const parentPath = await this.pathFor(current.parentId);
-    await this.mutation(["filesystem", "rename", oldPath, name]);
+    await this.mutation(["filesystem", "rename", oldPath, name], signal);
     this.rebasePaths(oldPath, this.childPath(parentPath, name));
     return this.getNode(nodeId);
   }
 
-  async move(nodeId: string, parentId: string, knownNode?: DriveNode): Promise<DriveNode> {
+  async move(nodeId: string, parentId: string, knownNode?: DriveNode, signal?: AbortSignal): Promise<DriveNode> {
     const current = knownNode ?? await this.getNode(nodeId);
     const nodePath = await this.pathFor(nodeId);
     const parentPath = await this.pathFor(parentId);
-    await this.mutation(["filesystem", "move", nodePath, parentPath]);
+    await this.mutation(["filesystem", "move", nodePath, parentPath], signal);
     this.rebasePaths(nodePath, this.childPath(parentPath, current.name));
     return this.getNode(nodeId);
   }
 
-  async trash(nodeId: string): Promise<void> {
+  async trash(nodeId: string, signal?: AbortSignal): Promise<void> {
     const path = await this.pathFor(nodeId);
-    await this.mutation(["filesystem", "trash", path]);
+    await this.mutation(["filesystem", "trash", path], signal);
     for (const [id, cached] of this.paths) if (cached === path || cached.startsWith(`${path}/`)) this.paths.delete(id);
   }
 

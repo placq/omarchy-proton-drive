@@ -21,4 +21,4 @@ jobs:
       - run: npm test
       - run: npm run check
       - run: OMARCHY_DRIVE_REQUIRE_DBUS_TEST=1 npm run validate
-      - run: npm audit --omit=dev
+      - run: npm audit

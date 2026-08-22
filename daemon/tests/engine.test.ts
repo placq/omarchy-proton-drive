@@ -33,6 +33,27 @@ test("browse, materialize and cached open", async () => {
   provider.setOnline(false); assert.equal(await engine.materialize("welcome"), path);
 });
 
+test("an unpinned remote update invalidates stale cached bytes", async () => {
+  const { provider, engine } = await fixture(); await engine.listChildren("docs");
+  const oldPath = await engine.materialize("welcome");
+  assert.match(await readFile(oldPath, "utf8"), /fake provider/);
+  provider.remoteEdit("welcome", new TextEncoder().encode("new remote bytes"));
+  await engine.processEvents();
+  assert.equal(engine.getState("welcome")?.status, "cloud-only");
+  assert.equal(engine.getState("welcome")?.cachePath, undefined);
+  assert.equal(await readFile(await engine.materialize("welcome"), "utf8"), "new remote bytes");
+});
+
+test("a download binds cache to a newer provider revision than stale listing metadata", async () => {
+  const { provider, engine } = await fixture(); await engine.listChildren("docs");
+  await engine.materialize("welcome"); await engine.evict("welcome");
+  provider.remoteEdit("welcome", new TextEncoder().encode("changed after listing"));
+  const path = await engine.materialize("welcome");
+  assert.equal(await readFile(path, "utf8"), "changed after listing");
+  assert.equal(engine.getState("welcome")?.remoteRevision, "2");
+  assert.equal(engine.getState("welcome")?.cacheRevision, "2");
+});
+
 test("a fresh folder listing avoids a redundant node lookup before download", async () => {
   const { provider, engine } = await fixture(); await engine.listChildren("root"); await engine.listChildren("docs");
   let lookups = 0; const original = provider.getNode.bind(provider);
@@ -68,6 +89,20 @@ test("pin survives state reload and eviction unpins", async () => {
   const { engine } = await fixture(); await engine.listChildren("docs");
   const pinned = await engine.pin("welcome", true); assert.equal(pinned.status, "pinned"); assert.ok(pinned.cachePath);
   const evicted = await engine.evict("welcome"); assert.equal(evicted.status, "cloud-only"); assert.equal(evicted.pinned, false);
+});
+
+test("startup removes orphaned and unverifiable cache files", async () => {
+  const { root, provider, engine } = await fixture(); await engine.listChildren("docs");
+  const cachedPath = await engine.materialize("welcome");
+  const state = engine.getState("welcome")!;
+  state.cacheRevision = undefined;
+  engine.store.setState(state); await engine.store.save();
+  const orphanPath = join(root, "cache/content/.orphan-download"); await writeFile(orphanPath, "orphan");
+  const restarted = new DriveEngine(provider, new StateStore(join(root, "state/state.sqlite")), new LocalStorage(join(root, "cache"), join(root, "state")));
+  await restarted.initialize();
+  assert.equal(restarted.getState("welcome")?.status, "cloud-only");
+  await assert.rejects(stat(cachedPath), (error: NodeJS.ErrnoException) => error.code === "ENOENT");
+  await assert.rejects(stat(orphanPath), (error: NodeJS.ErrnoException) => error.code === "ENOENT");
 });
 
 test("edit uploads a new revision without dropping staging early", async () => {
@@ -191,6 +226,15 @@ test("recursive pinning reuses listed metadata instead of looking up every node"
 test("dirty local data cannot be trashed", async () => {
   const { engine } = await fixture(); await engine.listChildren("docs"); await engine.stageBytes("welcome", new Uint8Array([1]));
   await assert.rejects(engine.trash("welcome"), UnsafeMutationError);
+});
+
+test("trashing a clean node removes its local cache bytes", async () => {
+  const { engine } = await fixture(); await engine.listChildren("docs");
+  const cachePath = await engine.materialize("welcome");
+  assert.ok((await stat(cachePath)).isFile());
+  await engine.trash("welcome");
+  await assert.rejects(stat(cachePath), (error: NodeJS.ErrnoException) => error.code === "ENOENT");
+  assert.equal(await engine.cacheUsage(), 0);
 });
 
 test("folder mutations refuse unsynchronised descendants", async () => {
@@ -393,6 +437,25 @@ test("RPC rejects path-like identifiers and unsafe names", async () => {
   await assert.rejects(dispatch("CreateFolder", { parentId: "root", name: "bad\uD800name" }), /Invalid node name/);
   const normalized = await dispatch("Rename", { nodeId: "welcome", name: "e\u0301.txt" }) as {name:string};
   assert.equal(normalized.name, "é.txt");
+});
+
+test("an RPC timeout cancels a queued remote mutation", async () => {
+  const { provider, engine } = await fixture(); await engine.listChildren("docs");
+  const original = provider.rename.bind(provider); let mutated = false;
+  provider.rename = async (nodeId, name, knownNode, signal) => {
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(resolve, 100);
+      signal?.addEventListener("abort", () => { clearTimeout(timer); reject(signal.reason); }, { once: true });
+    });
+    mutated = true;
+    return original(nodeId, name, knownNode, signal);
+  };
+  const rpc = new RpcServer(engine, "/unused", 20);
+  const bounded = (rpc as unknown as { boundedDispatch(method: string, params: Record<string, unknown>): Promise<unknown> }).boundedDispatch.bind(rpc);
+  await assert.rejects(bounded("Rename", { nodeId: "welcome", name: "too-late.txt" }), { name: "TimeoutError" });
+  await new Promise(resolve => setTimeout(resolve, 120));
+  assert.equal(mutated, false);
+  assert.equal((await provider.getNode("welcome")).name, "Welcome.txt");
 });
 
 test("local storage maps long Proton UIDs to safe stable filenames", async () => {

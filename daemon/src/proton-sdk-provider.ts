@@ -4,7 +4,7 @@ import { createReadStream, createWriteStream } from "node:fs";
 import { Readable, Writable } from "node:stream";
 
 type StreamWritable = WritableStream<Uint8Array>;
-export const PROTON_APP_VERSION = "external-drive-omarchy_drive@1.0.0";
+export const PROTON_APP_VERSION = "external-drive-omarchy_drive@1.0.1";
 type SdkNode = Record<string, unknown>;
 interface SdkController { completion(): Promise<Record<string, unknown>>; }
 interface SdkDriveEvent { type: string; eventId: string; nodeUid?: string; isTrashed?: boolean; }
@@ -76,10 +76,10 @@ export class ProtonSdkProvider implements DriveProvider {
     }
     return this.getNode(String((await completion).nodeUid));
   }
-  async createFolder(parentId: string, name: string): Promise<DriveNode> { return this.map(await this.client.createFolder(parentId, name)); }
-  async rename(nodeId: string, name: string): Promise<DriveNode> { return this.map(await this.client.renameNode(nodeId, name)); }
-  async move(nodeId: string, parentId: string): Promise<DriveNode> { for await (const result of this.client.moveNodes([nodeId], parentId)) { const value = result as unknown as Record<string, unknown>; if (value.error) throw value.error; } return this.getNode(nodeId); }
-  async trash(nodeId: string): Promise<void> { for await (const result of this.client.trashNodes([nodeId])) { const value = result as unknown as Record<string, unknown>; if (value.error) throw value.error; } }
+  async createFolder(parentId: string, name: string, signal?: AbortSignal): Promise<DriveNode> { signal?.throwIfAborted(); return this.map(await this.client.createFolder(parentId, name)); }
+  async rename(nodeId: string, name: string, _knownNode?: DriveNode, signal?: AbortSignal): Promise<DriveNode> { signal?.throwIfAborted(); return this.map(await this.client.renameNode(nodeId, name)); }
+  async move(nodeId: string, parentId: string, _knownNode?: DriveNode, signal?: AbortSignal): Promise<DriveNode> { signal?.throwIfAborted(); for await (const result of this.client.moveNodes([nodeId], parentId)) { signal?.throwIfAborted(); const value = result as unknown as Record<string, unknown>; if (value.error) throw value.error; } return this.getNode(nodeId); }
+  async trash(nodeId: string, signal?: AbortSignal): Promise<void> { signal?.throwIfAborted(); for await (const result of this.client.trashNodes([nodeId])) { signal?.throwIfAborted(); const value = result as unknown as Record<string, unknown>; if (value.error) throw value.error; } }
   async *getEvents(afterId?: string): AsyncIterable<DriveEvent> {
     if (!this.eventScopeId) await this.getRoot();
     if (!this.eventScopeId) throw new Error("My Files root has no tree event scope");

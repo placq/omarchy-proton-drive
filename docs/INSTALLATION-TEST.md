@@ -2,7 +2,7 @@
 
 Status: **installation, reboot, session restore, read path, the isolated real-account write/conflict smoke test and the checksummed 1.0.0 release installation passed; marketplace listing remains pending maintainer review**.
 
-The 72-test automated suite, 12 Python unit tests, live session D-Bus integration, fake-provider FUSE test and real-account read path pass on Omarchy Quattro, including browser login, OS secret storage, Unix socket, FUSE mount, one Nautilus bookmark, account/storage bar panel, on-demand download and service restart recovery. Automated coverage also includes desktop-style atomic replacement, hostile FUSE names and links, malformed RPC values, failed SQLite transaction replay, remote deletion during local edits, background-commit setup recovery, ambiguous post-commit crash recovery and unsafe uninstall refusal.
+The 77-test automated suite, 14 Python unit tests, live session D-Bus integration, fake-provider FUSE test and real-account read path pass on Omarchy Quattro, including browser login, OS secret storage, Unix socket, FUSE mount, one Nautilus bookmark, account/storage bar panel, on-demand download and service restart recovery. Automated coverage also includes desktop-style atomic replacement, hostile FUSE names and links, non-empty directory deletion refusal, malformed RPC values, failed SQLite transaction replay, remote deletion during local edits, stale-cache invalidation, background-commit setup recovery, ambiguous post-commit crash recovery and unsafe uninstall refusal.
 
 ## 2026-08-22 — checksummed 1.0.0 release acceptance
 

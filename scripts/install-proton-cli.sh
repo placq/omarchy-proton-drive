@@ -29,7 +29,7 @@ git -C "$build_dir" apply "$project_dir/patches/proton-cli-account-info.patch"
   ln -s cli/node_modules "$build_dir/node_modules"
   bun add --no-save @xmldom/xmldom@0.9.10 exifreader@4.39.1
   CLI_APP_VERSION_NAME=external-drive-omarchy_drive \
-    CLI_VERSION=1.0.0 JS_VERSION=0.21.0 bun run build
+    CLI_VERSION=1.0.1 JS_VERSION=0.21.0 bun run build
 )
 
 install -Dm755 "$build_dir/cli/release/proton-drive" "$output"

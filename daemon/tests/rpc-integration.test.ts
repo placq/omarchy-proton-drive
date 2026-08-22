@@ -134,7 +134,7 @@ test("daemon RPC smoke test uses the real process and private XDG state", async 
   assert.equal(status.provider, "fake");
   assert.equal(status.account, null);
   assert.equal(status.connectionError, "");
-  assert.equal(status.version, "1.0.0");
+  assert.equal(status.version, "1.0.1");
   assert.equal(status.apiVersion, 1);
   assert.equal(typeof status.checkedAt, "number");
   assert.equal(typeof status.cacheBytes, "number");

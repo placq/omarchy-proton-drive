@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "placq.proton-drive",
   "name": "Proton Drive for Omarchy",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "placq",
   "license": "MIT",
   "description": "Unofficial Proton Drive integration for Omarchy Files",

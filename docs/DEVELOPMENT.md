@@ -10,7 +10,7 @@ When `python-pyfuse3`, `python-trio` and FUSE mounts are available, `npm test` a
 
 The daemon's Unix socket defaults to `$XDG_RUNTIME_DIR/omarchy-drive.sock`. Use `omarchy-drive-control status`, `transfers`, `node-status ID`, `pin ID`, `evict ID`, `retry ID`, `sync`, or `watch`.
 
-Advanced runtime tuning is available through the service environment file. CLI commands default to a five-minute timeout and a 64 MiB output limit; override them with `OMARCHY_DRIVE_CLI_TIMEOUT_MS` and `OMARCHY_DRIVE_CLI_MAX_BUFFER_BYTES`. FUSE, D-Bus, control and smoke RPC calls share the five-minute `OMARCHY_DRIVE_RPC_TIMEOUT_SECONDS` setting; Nautilus uses the same client with a fixed 250 ms UI-safe timeout. Invalid or non-positive values safely fall back to the defaults.
+Advanced runtime tuning is available through the service environment file. CLI commands default to a five-minute timeout and a 64 MiB output limit; override them with `OMARCHY_DRIVE_CLI_TIMEOUT_MS` and `OMARCHY_DRIVE_CLI_MAX_BUFFER_BYTES`. The daemon's cancellation deadline uses `OMARCHY_DRIVE_RPC_TIMEOUT_MS`; FUSE, D-Bus, control and smoke client calls use `OMARCHY_DRIVE_RPC_TIMEOUT_SECONDS`. Both default to five minutes, and disconnecting a client also requests cancellation. Nautilus uses a fixed 250 ms client timeout to avoid blocking the file-manager UI. Invalid or non-positive values safely fall back to the defaults.
 
 Real Proton tests must use a dedicated `/OmarchyDriveIntegrationTests/` folder and an interactive secure login. Never place secrets in `.env`, fixtures or CI.
 

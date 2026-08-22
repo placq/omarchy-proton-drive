@@ -60,7 +60,15 @@ export class DriveEngine extends EventEmitter {
     this.provider.primeNodes?.(this.store.getNodes());
     let changed = false;
     for (const state of this.store.getStates()) {
-      const stagingExists = await this.storage.exists(state.stagingPath); const cacheExists = await this.storage.exists(state.cachePath);
+      const cachedNode = this.store.getNode(state.nodeId);
+      const stagingExists = this.storage.ownsStagingPath(state.stagingPath) && await this.storage.exists(state.stagingPath);
+      const cacheExists = this.storage.ownsCachePath(state.cachePath) && await this.storage.exists(state.cachePath);
+      if (state.cachePath && !this.storage.ownsCachePath(state.cachePath)) {
+        state.cachePath = undefined; state.cacheRevision = undefined; this.store.setState(state); changed = true;
+      }
+      if (state.stagingPath && !this.storage.ownsStagingPath(state.stagingPath)) {
+        state.stagingPath = undefined; this.store.setState(state); changed = true;
+      }
       if (state.status === "uploading") {
         state.status = stagingExists ? "queued" : "error";
         state.interruptedUpload = stagingExists || undefined;
@@ -68,8 +76,9 @@ export class DriveEngine extends EventEmitter {
         this.store.setState(state); changed = true;
       } else if (["dirty", "queued", "conflict"].includes(state.status) && !stagingExists) {
         state.status = "error"; state.error = "Persistent staging file is missing"; this.store.setState(state); changed = true;
-      } else if (["cached", "pinned"].includes(state.status) && !cacheExists) {
-        state.status = "cloud-only"; state.cachePath = undefined; this.store.setState(state); changed = true;
+      } else if (["cached", "pinned"].includes(state.status) && cachedNode?.kind === "file" && (!cacheExists || state.cacheRevision !== state.remoteRevision)) {
+        if (cacheExists) await this.storage.remove(state.cachePath);
+        state.status = "cloud-only"; state.cachePath = undefined; state.cacheRevision = undefined; this.store.setState(state); changed = true;
       } else if (state.status === "downloading") {
         state.status = "error"; state.error = "Download was interrupted and can be retried"; this.store.setState(state); changed = true;
       }
@@ -77,17 +86,41 @@ export class DriveEngine extends EventEmitter {
         if (stagingExists) await this.storage.remove(state.stagingPath);
         state.stagingPath = undefined; this.store.setState(state); changed = true;
       }
+      if (state.status === "cloud-only" && state.cachePath) {
+        if (cacheExists) await this.storage.remove(state.cachePath);
+        state.cachePath = undefined; state.cacheRevision = undefined; this.store.setState(state); changed = true;
+      }
     }
+    await this.storage.pruneCache(this.store.getStates().flatMap(state => state.cachePath ? [state.cachePath] : []));
     if (changed) await this.store.save();
   }
   private stateFor(node: DriveNode): NodeState {
     return this.store.getState(node.id) ?? { nodeId: node.id, status: "cloud-only", pinned: false, remoteRevision: node.revision, lastAccessedAt: Date.now() };
   }
   private logWarn(event: string, error: unknown): void {
-    console.error(JSON.stringify({ level: "warn", event, error: error instanceof Error ? error.message : String(error) }));
+    const detail = error as Error & { code?: string };
+    console.error(JSON.stringify({ level: "warn", event, code: detail?.code ?? detail?.name ?? "Error" }));
   }
   private async remember(node: DriveNode, state?: NodeState): Promise<void> {
     this.store.setNode(node); this.store.setState(state ?? this.stateFor(node)); await this.store.save(); this.emit("nodeChanged", node.id);
+  }
+  private async reconcileRemoteNode(node: DriveNode): Promise<NodeState> {
+    const state = this.stateFor(node);
+    const revisionChanged = Boolean(state.remoteRevision && state.remoteRevision !== node.revision);
+    const cachedRevisionChanged = Boolean(state.cachePath && state.cacheRevision !== node.revision);
+    const stagingExists = await this.storage.exists(state.stagingPath);
+    if ((revisionChanged || cachedRevisionChanged) && state.cachePath && !stagingExists && !UNSAFE_EVICTION.has(state.status)) {
+      await this.storage.remove(state.cachePath);
+      state.cachePath = undefined;
+      state.cacheRevision = undefined;
+      state.status = "cloud-only";
+      state.error = undefined;
+    }
+    state.remoteRevision = node.revision;
+    state.remoteDeleted = undefined;
+    this.store.setNode(node);
+    this.store.setState(state);
+    return state;
   }
   async root(): Promise<DriveNode> {
     const cached = this.store.getRoot();
@@ -138,7 +171,7 @@ export class DriveEngine extends EventEmitter {
     try {
       const nodes = await this.provider.listChildren(parentId, priority);
       const seen = new Set(nodes.map(node => node.id));
-      for (const node of nodes) { this.store.setNode(node); const state = this.stateFor(node); state.remoteRevision = node.revision; state.remoteDeleted = undefined; this.store.setState(state); }
+      for (const node of nodes) await this.reconcileRemoteNode(node);
       for (const cached of this.store.getChildren(parentId).filter(node => !seen.has(node.id))) {
         await this.reconcileRemoteDeletion(cached.id);
       }
@@ -168,7 +201,7 @@ export class DriveEngine extends EventEmitter {
     }
   }
   async getNode(nodeId: string): Promise<DriveNode> {
-    try { const node = await this.provider.getNode(nodeId); this.store.setNode(node); await this.store.save(); return node; }
+    try { const node = await this.provider.getNode(nodeId); await this.reconcileRemoteNode(node); await this.store.save(); return node; }
     catch (e) { const cached = this.store.getNode(nodeId); if (e instanceof OfflineError && cached) return cached; throw e; }
   }
   private freshListedNode(nodeId: string): DriveNode | undefined {
@@ -186,23 +219,32 @@ export class DriveEngine extends EventEmitter {
   }
   private async performMaterialize(nodeId: string): Promise<string> {
     const cachedNode = this.store.getNode(nodeId); const cachedState = cachedNode ? this.stateFor(cachedNode) : undefined;
-    if (cachedState?.cachePath && cachedState.remoteRevision === cachedNode!.revision && ["cached", "pinned"].includes(cachedState.status) && await this.storage.exists(cachedState.cachePath)) {
+    if (cachedState?.cachePath && cachedState.cacheRevision === cachedNode!.revision && ["cached", "pinned"].includes(cachedState.status) && await this.storage.exists(cachedState.cachePath)) {
       cachedState.lastAccessedAt = Date.now(); this.store.setState(cachedState); void this.store.save(); return cachedState.cachePath;
     }
-    if (cachedState?.cachePath && ["queued", "uploading", "error"].includes(cachedState.status) && await this.storage.exists(cachedState.cachePath)) return cachedState.cachePath;
+    if (cachedState?.cachePath && ["queued", "uploading"].includes(cachedState.status) && await this.storage.exists(cachedState.cachePath)) return cachedState.cachePath;
     if (cachedState?.stagingPath && ["dirty", "queued", "conflict"].includes(cachedState.status) && await this.storage.exists(cachedState.stagingPath)) return cachedState.stagingPath;
     const node = this.freshListedNode(nodeId) ?? await this.getNode(nodeId); if (node.kind !== "file") throw new Error("Cannot open a folder as a file");
     const state = this.stateFor(node);
     state.status = "downloading"; this.store.setState(state); await this.store.save();
     const transfer = this.transfers.start(node.id, "download", node.name, this.provider.progressSupported === false ? 0 : node.size);
+    const path = this.storage.cachePath(node.id); const temporary = this.storage.downloadPath(node.id);
     try {
-      const path = this.storage.cachePath(node.id); const temporary = this.storage.downloadPath(node.id);
       await this.storage.remove(temporary);
       const result = await this.provider.downloadToPath(node.id, temporary, (done) => this.transfers.progress(transfer.id, done), node);
+      const latest = this.store.getNode(node.id);
+      if (latest && latest.revision !== result.revision) {
+        const confirmed = await this.provider.getNode(node.id);
+        await this.reconcileRemoteNode(confirmed); await this.store.save();
+        if (confirmed.revision !== result.revision) {
+          await this.storage.remove(temporary);
+          throw new ConflictError("Remote revision changed while the file was downloading; retry the open operation");
+        }
+      }
       await this.storage.finalizeDownload(temporary, path);
-      state.cachePath = path; state.remoteRevision = result.revision; state.status = state.pinned ? "pinned" : "cached"; state.lastAccessedAt = Date.now();
+      state.cachePath = path; state.cacheRevision = result.revision; state.remoteRevision = result.revision; state.status = state.pinned ? "pinned" : "cached"; state.lastAccessedAt = Date.now();
       this.store.setState(state); await this.store.save(); this.transfers.finish(transfer.id); this.emit("nodeChanged", node.id); return path;
-    } catch (e) { state.status = "error"; state.error = e instanceof Error ? e.message : String(e); this.store.setState(state); await this.store.save(); this.transfers.fail(transfer.id, e); throw e; }
+    } catch (e) { await this.storage.remove(temporary); state.status = "error"; state.error = e instanceof Error ? e.message : String(e); this.store.setState(state); await this.store.save(); this.transfers.fail(transfer.id, e); throw e; }
   }
   async pin(nodeId: string, pinned: boolean): Promise<NodeState> {
     const node = this.store.getNode(nodeId) ?? await this.getNode(nodeId); const state = this.stateFor(node); state.pinned = pinned; this.store.setState(state); await this.store.save();
@@ -219,7 +261,7 @@ export class DriveEngine extends EventEmitter {
     const node = this.store.getNode(nodeId) ?? await this.getNode(nodeId); const state = this.stateFor(node);
     if (UNSAFE_EVICTION.has(state.status)) throw new UnsafeEvictionError(state.status);
     if (state.stagingPath && await this.storage.exists(state.stagingPath)) throw new UnsafeEvictionError(state.status);
-    await this.storage.remove(state.cachePath); state.cachePath = undefined; state.pinned = false; state.status = "cloud-only"; state.lastAccessedAt = Date.now();
+    await this.storage.remove(state.cachePath); state.cachePath = undefined; state.cacheRevision = undefined; state.pinned = false; state.status = "cloud-only"; state.lastAccessedAt = Date.now();
     this.store.setState(state); await this.store.save(); this.emit("nodeChanged", nodeId); return state;
   }
   async stageBytes(nodeId: string, bytes: Uint8Array): Promise<NodeState> {
@@ -247,7 +289,7 @@ export class DriveEngine extends EventEmitter {
     const cachedNode = this.store.getNode(nodeId); if (!cachedNode) throw new Error(`Node not known: ${nodeId}`); const state = this.stateFor(cachedNode);
     if (!state.stagingPath) throw new Error("No staged changes");
     if (this.scheduledCommits.has(nodeId) || this.activeCommits.has(nodeId)) return state;
-    const cachePath = this.storage.cachePath(nodeId); await copyFile(state.stagingPath, cachePath); state.cachePath = cachePath;
+    const cachePath = this.storage.cachePath(nodeId); await copyFile(state.stagingPath, cachePath); state.cachePath = cachePath; state.cacheRevision = undefined;
     cachedNode.size = await this.storage.size(state.stagingPath); cachedNode.modifiedAt = Date.now(); this.store.setNode(cachedNode);
     state.status = "queued"; state.error = undefined; this.store.setState(state); await this.store.save(); this.emit("nodeChanged", nodeId);
     const queuedTransfer = this.transfers.start(nodeId, "upload", cachedNode.name, this.provider.progressSupported === false ? 0 : cachedNode.size, "queued");
@@ -259,14 +301,14 @@ export class DriveEngine extends EventEmitter {
     });
     return state;
   }
-  async commit(nodeId: string): Promise<NodeState> {
+  async commit(nodeId: string, signal?: AbortSignal): Promise<NodeState> {
     const active = this.activeCommits.get(nodeId); if (active) return active;
-    const operation = this.performCommit(nodeId).finally(() => this.activeCommits.delete(nodeId));
+    const operation = this.performCommit(nodeId, signal).finally(() => this.activeCommits.delete(nodeId));
     this.activeCommits.set(nodeId, operation); return operation;
   }
   private async finalizeCommittedUpload(node: DriveNode, state: NodeState, cachePath: string, transfer: Transfer): Promise<NodeState> {
     const stagingPath = state.stagingPath!;
-    state.cachePath = cachePath; state.remoteRevision = node.revision; state.baseRevision = undefined;
+    state.cachePath = cachePath; state.cacheRevision = node.revision; state.remoteRevision = node.revision; state.baseRevision = undefined;
     state.interruptedUpload = undefined; state.status = state.pinned ? "pinned" : "cached"; state.error = undefined;
     // Persist the committed remote revision while staging still exists. A
     // crash before the next phase therefore retains both recovery facts.
@@ -281,14 +323,14 @@ export class DriveEngine extends EventEmitter {
     catch (error) { this.logWarn("committed_staging_state_cleanup_failed", error); }
     this.transfers.finish(transfer.id); this.emit("nodeChanged", node.id); return state;
   }
-  private async performCommit(nodeId: string): Promise<NodeState> {
+  private async performCommit(nodeId: string, signal?: AbortSignal): Promise<NodeState> {
     const cachedNode = this.store.getNode(nodeId); if (!cachedNode) throw new Error(`Node not known: ${nodeId}`); const state = this.stateFor(cachedNode);
     if (!state.stagingPath) throw new Error("No staged changes");
     const interruptedUpload = state.interruptedUpload === true;
     const expectedBaseRevision = state.baseRevision;
     const wasQueued = state.status === "queued";
     const expectedSize = await this.storage.size(state.stagingPath);
-    const cachePath = this.storage.cachePath(nodeId); await copyFile(state.stagingPath, cachePath); state.cachePath = cachePath;
+    const cachePath = this.storage.cachePath(nodeId); await copyFile(state.stagingPath, cachePath); state.cachePath = cachePath; state.cacheRevision = undefined;
     // A cancel that raced the staging copy reverts to a dirty state; keep the
     // staged bytes editable and re-uploadable instead of uploading anyway.
     if (wasQueued && state.status === "dirty") return state;
@@ -309,6 +351,9 @@ export class DriveEngine extends EventEmitter {
       transfer = this.transfers.start(nodeId, "upload", cachedNode.name, this.provider.progressSupported === false ? 0 : expectedSize);
     }
     const abort = new AbortController(); this.uploadAborts.set(transfer.id, abort);
+    const abortFromCaller = () => abort.abort(signal?.reason);
+    if (signal?.aborted) abortFromCaller();
+    else signal?.addEventListener("abort", abortFromCaller, { once: true });
     let committedRemote: DriveNode | undefined;
     try {
       const remote = await this.provider.getNode(nodeId);
@@ -339,13 +384,16 @@ export class DriveEngine extends EventEmitter {
       }
       if (abort.signal.aborted) {
         state.status = "dirty"; state.error = "Upload cancelled"; state.cachePath = cachePath;
-        this.store.setState(state); await this.store.save(); this.transfers.cancel(transfer.id); this.emit("nodeChanged", nodeId); return state;
+        this.store.setState(state); await this.store.save(); this.transfers.cancel(transfer.id); this.emit("nodeChanged", nodeId);
+        if (signal?.aborted) throw signal.reason ?? new Error("Upload cancelled");
+        return state;
       }
       if (e instanceof ConflictError) { const preserved = await this.storage.preserveConflict(state.stagingPath!, nodeId, cachedNode.name); state.status = "conflict"; state.interruptedUpload = undefined; state.error = `Both versions preserved; local copy: ${preserved}`; }
       else if (e instanceof OfflineError) { state.status = "queued"; state.error = "Waiting for network"; }
       else { state.status = "error"; state.error = e instanceof Error ? e.message : String(e); }
       this.store.setState(state); await this.store.save(); this.transfers.fail(transfer.id, e); this.emit("nodeChanged", nodeId); return state;
     } finally {
+      signal?.removeEventListener("abort", abortFromCaller);
       this.uploadAborts.delete(transfer.id); this.queuedTransfers.delete(nodeId);
     }
   }
@@ -385,13 +433,13 @@ export class DriveEngine extends EventEmitter {
     await this.processEvents();
     await this.enforceCacheLimit(maxCacheBytes);
   }
-  async createFolder(parentId: string, name: string): Promise<DriveNode> { const node = await this.provider.createFolder(parentId, name); await this.remember(node); return node; }
-  async createFile(parentId: string, name: string, bytes: Uint8Array): Promise<DriveNode> {
+  async createFolder(parentId: string, name: string, signal?: AbortSignal): Promise<DriveNode> { const node = await this.provider.createFolder(parentId, name, signal); await this.remember(node); return node; }
+  async createFile(parentId: string, name: string, bytes: Uint8Array, signal?: AbortSignal): Promise<DriveNode> {
     const temporaryId = `new-${randomUUID()}`; const sourcePath = await this.storage.stageBytes(bytes, temporaryId);
     try {
-      const node = await this.provider.upload({ parentId, name, sourcePath, expectedSize: bytes.byteLength, modifiedAt: Date.now() });
+      const node = await this.provider.upload({ parentId, name, sourcePath, expectedSize: bytes.byteLength, modifiedAt: Date.now(), signal });
       const cachePath = this.storage.cachePath(node.id); await copyFile(sourcePath, cachePath);
-      await this.remember(node, { ...this.stateFor(node), status: "cached", cachePath, remoteRevision: node.revision, lastAccessedAt: Date.now() });
+      await this.remember(node, { ...this.stateFor(node), status: "cached", cachePath, cacheRevision: node.revision, remoteRevision: node.revision, lastAccessedAt: Date.now() });
       return node;
     }
     finally { await this.storage.remove(sourcePath); }
@@ -441,22 +489,23 @@ export class DriveEngine extends EventEmitter {
   private async assertTreeSafe(nodeId: string, operation: string): Promise<void> {
     for (const id of this.treeNodeIds(nodeId)) {
       const state = this.store.getState(id);
+      if (this.activeDownloads.has(id)) throw new UnsafeMutationError(operation, "downloading");
       if (!state) continue;
       if (UNSAFE_EVICTION.has(state.status) || await this.storage.exists(state.stagingPath)) throw new UnsafeMutationError(operation, state.status);
     }
   }
-  async rename(nodeId: string, name: string): Promise<DriveNode> {
+  async rename(nodeId: string, name: string, signal?: AbortSignal): Promise<DriveNode> {
     await this.assertTreeSafe(nodeId, "rename");
     const known = this.store.getNode(nodeId);
-    const node = await this.provider.rename(nodeId, name, known); await this.remember(node, { ...this.stateFor(node), remoteRevision: node.revision }); return node;
+    const node = await this.provider.rename(nodeId, name, known, signal); await this.remember(node, { ...this.stateFor(node), remoteRevision: node.revision }); return node;
   }
-  async move(nodeId: string, parentId: string): Promise<DriveNode> {
+  async move(nodeId: string, parentId: string, signal?: AbortSignal): Promise<DriveNode> {
     if (this.treeNodeIds(nodeId).includes(parentId)) throw new Error("Cannot move a folder into itself or its descendant");
     await this.assertTreeSafe(nodeId, "move");
     const known = this.store.getNode(nodeId);
-    const node = await this.provider.move(nodeId, parentId, known); await this.remember(node, { ...this.stateFor(node), remoteRevision: node.revision }); return node;
+    const node = await this.provider.move(nodeId, parentId, known, signal); await this.remember(node, { ...this.stateFor(node), remoteRevision: node.revision }); return node;
   }
-  async replace(sourceId: string, destinationId: string): Promise<DriveNode> {
+  async replace(sourceId: string, destinationId: string, signal?: AbortSignal): Promise<DriveNode> {
     if (sourceId === destinationId) return this.store.getNode(sourceId) ?? await this.getNode(sourceId);
     await this.assertTreeSafe(sourceId, "replace"); await this.assertTreeSafe(destinationId, "replace");
     const source = this.store.getNode(sourceId) ?? await this.getNode(sourceId);
@@ -465,15 +514,15 @@ export class DriveEngine extends EventEmitter {
     if (!destination.parentId) throw new Error("The Proton Drive root cannot be replaced");
     const sourceState = this.stateFor(source); const destinationState = this.stateFor(destination);
     const backupName = replacementBackupName(destination.name);
-    await this.provider.rename(destination.id, backupName, destination);
+    await this.provider.rename(destination.id, backupName, destination, signal);
     let replaced = source;
     let sourceMoved = false;
     try {
       if (replaced.parentId !== destination.parentId) {
-        replaced = await this.provider.move(replaced.id, destination.parentId, replaced);
+        replaced = await this.provider.move(replaced.id, destination.parentId, replaced, signal);
         sourceMoved = true;
       }
-      if (replaced.name !== destination.name) replaced = await this.provider.rename(replaced.id, destination.name, replaced);
+      if (replaced.name !== destination.name) replaced = await this.provider.rename(replaced.id, destination.name, replaced, signal);
     } catch (error) {
       if (sourceMoved && source.parentId) {
         try { replaced = await this.provider.move(replaced.id, source.parentId, replaced); }
@@ -493,13 +542,20 @@ export class DriveEngine extends EventEmitter {
     catch (error) { this.logWarn("replace_backup_cleanup_failed", error); }
     return replaced;
   }
-  async trash(nodeId: string): Promise<void> {
+  async trash(nodeId: string, signal?: AbortSignal): Promise<void> {
     await this.assertTreeSafe(nodeId, "trash");
     const node = this.store.getNode(nodeId) ?? await this.getNode(nodeId);
     const removedIds = this.treeNodeIds(nodeId);
     const transfer = this.transfers.start(nodeId, "trash", node.name, 0);
     try {
-      await this.provider.trash(nodeId);
+      await this.provider.trash(nodeId, signal);
+      for (const id of removedIds) {
+        const state = this.store.getState(id);
+        for (const path of new Set([state?.cachePath, this.storage.cachePath(id)])) {
+          try { await this.storage.remove(path); }
+          catch (error) { this.logWarn("trashed_cache_cleanup_failed", error); }
+        }
+      }
       for (const id of removedIds) this.store.deleteNode(id);
       await this.store.save();
       for (const id of removedIds) this.emit("nodeChanged", id);
@@ -509,24 +565,24 @@ export class DriveEngine extends EventEmitter {
       throw error;
     }
   }
-  async resolveConflict(nodeId: string, resolution: "keep-local" | "keep-remote" | "save-both", copyName?: string): Promise<NodeState> {
+  async resolveConflict(nodeId: string, resolution: "keep-local" | "keep-remote" | "save-both", copyName?: string, signal?: AbortSignal): Promise<NodeState> {
     const node = this.store.getNode(nodeId) ?? await this.getNode(nodeId);
     const state = this.stateFor(node);
     if (state.status !== "conflict" || !state.stagingPath || !(await this.storage.exists(state.stagingPath))) throw new Error("Node has no resolvable conflict");
-    if (state.remoteDeleted) return this.resolveRemoteDeletedConflict(node, state, resolution, copyName);
+    if (state.remoteDeleted) return this.resolveRemoteDeletedConflict(node, state, resolution, copyName, signal);
     if (resolution === "keep-local") {
       const remote = await this.provider.getNode(nodeId);
       state.baseRevision = remote.revision; state.remoteRevision = remote.revision; state.status = "queued"; state.error = undefined;
-      this.store.setState(state); await this.store.save(); return this.commit(nodeId);
+      this.store.setState(state); await this.store.save(); return this.commit(nodeId, signal);
     }
     if (resolution === "save-both") {
       const name = copyName?.trim() || defaultConflictCopyName(node.name);
       const size = await this.storage.size(state.stagingPath);
-      const created = await this.provider.upload({ parentId: node.parentId ?? "root", name, sourcePath: state.stagingPath, expectedSize: size, modifiedAt: Date.now() });
+      const created = await this.provider.upload({ parentId: node.parentId ?? "root", name, sourcePath: state.stagingPath, expectedSize: size, modifiedAt: Date.now(), signal });
       await this.remember(created);
     }
     const stagingPath = state.stagingPath; const cachePath = state.cachePath;
-    state.stagingPath = undefined; state.cachePath = undefined; state.baseRevision = undefined; state.status = "cloud-only"; state.error = undefined;
+    state.stagingPath = undefined; state.cachePath = undefined; state.cacheRevision = undefined; state.baseRevision = undefined; state.status = "cloud-only"; state.error = undefined;
     const remote = await this.provider.getNode(nodeId); state.remoteRevision = remote.revision; this.store.setNode(remote); this.store.setState(state); await this.store.save(); this.emit("nodeChanged", nodeId);
     // Persist the stable state before deleting local files. A crash can leave
     // harmless orphans, but cannot leave state pointing at deleted data.
@@ -534,13 +590,13 @@ export class DriveEngine extends EventEmitter {
     if (state.pinned) return this.pin(nodeId, true);
     return state;
   }
-  private async restoreRemoteDeletedFolder(folderId: string): Promise<string> {
+  private async restoreRemoteDeletedFolder(folderId: string, signal?: AbortSignal): Promise<string> {
     const folder = this.store.getNode(folderId);
     const state = this.store.getState(folderId);
     if (!folder || !state?.remoteDeleted) return folderId;
     if (folder.kind !== "folder" || !folder.parentId) throw new Error("Cannot restore an invalid deleted parent folder");
-    const parentId = await this.restoreRemoteDeletedFolder(folder.parentId);
-    const created = await this.provider.createFolder(parentId, folder.name);
+    const parentId = await this.restoreRemoteDeletedFolder(folder.parentId, signal);
+    const created = await this.provider.createFolder(parentId, folder.name, signal);
     const children = this.store.getChildren(folder.id);
     const restoredState: NodeState = {
       ...state,
@@ -550,6 +606,7 @@ export class DriveEngine extends EventEmitter {
       remoteDeleted: undefined,
       baseRevision: undefined,
       cachePath: undefined,
+      cacheRevision: undefined,
       stagingPath: undefined,
       error: undefined,
       childrenRefreshedAt: undefined,
@@ -568,13 +625,13 @@ export class DriveEngine extends EventEmitter {
     }
     return rootId;
   }
-  private async resolveRemoteDeletedConflict(node: DriveNode, state: NodeState, resolution: "keep-local" | "keep-remote" | "save-both", copyName?: string): Promise<NodeState> {
+  private async resolveRemoteDeletedConflict(node: DriveNode, state: NodeState, resolution: "keep-local" | "keep-remote" | "save-both", copyName?: string, signal?: AbortSignal): Promise<NodeState> {
     const stagingPath = state.stagingPath!; const oldCachePath = state.cachePath;
     if (resolution !== "keep-remote") {
-      const parentId = node.parentId ? await this.restoreRemoteDeletedFolder(node.parentId) : "root";
+      const parentId = node.parentId ? await this.restoreRemoteDeletedFolder(node.parentId, signal) : "root";
       const size = await this.storage.size(stagingPath);
       const name = resolution === "save-both" ? copyName?.trim() || defaultConflictCopyName(node.name) : node.name;
-      const created = await this.provider.upload({ parentId, name, sourcePath: stagingPath, expectedSize: size, modifiedAt: Date.now() });
+      const created = await this.provider.upload({ parentId, name, sourcePath: stagingPath, expectedSize: size, modifiedAt: Date.now(), signal });
       if (resolution === "save-both") await this.remember(created);
       else {
       const newCachePath = this.storage.cachePath(created.id);
@@ -583,7 +640,7 @@ export class DriveEngine extends EventEmitter {
       catch (error) { this.logWarn("restored_file_cache_failed", error); }
       const restored: NodeState = {
         nodeId: created.id, status: cachePath ? (state.pinned ? "pinned" : "cached") : "cloud-only",
-        pinned: state.pinned, remoteRevision: created.revision, cachePath, lastAccessedAt: Date.now(),
+        pinned: state.pinned, remoteRevision: created.revision, cacheRevision: cachePath ? created.revision : undefined, cachePath, lastAccessedAt: Date.now(),
       };
       this.store.setNode(created); this.store.setState(restored); this.store.deleteNode(node.id); await this.store.save();
       this.emit("nodeChanged", node.id); this.emit("nodeChanged", created.id);
@@ -592,7 +649,7 @@ export class DriveEngine extends EventEmitter {
       }
     }
     const deletedRoot = this.remoteDeletedTreeRoot(node);
-    const resolved: NodeState = { ...state, status: "cloud-only", stagingPath: undefined, cachePath: undefined, baseRevision: undefined, remoteDeleted: undefined, error: undefined };
+    const resolved: NodeState = { ...state, status: "cloud-only", stagingPath: undefined, cachePath: undefined, cacheRevision: undefined, baseRevision: undefined, remoteDeleted: undefined, error: undefined };
     this.store.deleteNode(node.id);
     if (deletedRoot !== node.id && this.store.getNode(deletedRoot)) await this.reconcileRemoteDeletion(deletedRoot);
     await this.store.save(); this.emit("nodeChanged", node.id);
@@ -622,16 +679,7 @@ export class DriveEngine extends EventEmitter {
       const seenChildren = new Set<string>();
       for (const node of await this.provider.listChildren(parentId, "background")) {
         seenChildren.add(node.id);
-        const previous = this.store.getState(node.id);
-        if (previous && previous.remoteRevision !== node.revision && !UNSAFE_EVICTION.has(previous.status)) {
-          await this.storage.remove(previous.cachePath);
-          previous.cachePath = undefined;
-          previous.status = "cloud-only";
-        }
-        this.store.setNode(node);
-        const state = this.stateFor(node); state.remoteDeleted = undefined;
-        state.remoteRevision = node.revision;
-        this.store.setState(state);
+        await this.reconcileRemoteNode(node);
       }
       for (const node of this.store.getChildren(parentId)) {
         if (seenChildren.has(node.id)) continue;
@@ -647,7 +695,7 @@ export class DriveEngine extends EventEmitter {
         this.store.setNode(root);
         await this.refreshKnownFolders(root.id);
       } else if (event.type === "trashed") await this.reconcileRemoteDeletion(event.nodeId);
-      else if (event.node) { const previous = this.store.getState(event.nodeId); this.store.setNode(event.node); if (previous) { if (previous.pinned && previous.remoteRevision !== event.node.revision && !["dirty", "queued", "uploading", "conflict"].includes(previous.status)) { await this.storage.remove(previous.cachePath); previous.cachePath = undefined; previous.status = "cloud-only"; } previous.remoteRevision = event.node.revision; previous.remoteDeleted = undefined; this.store.setState(previous); } }
+      else if (event.node) await this.reconcileRemoteNode(event.node);
       // Proton emits `tree_remove` with eventId="none". It is a refresh
       // marker, not a resumable cursor; persisting it would make the next
       // event request restart from an invalid cursor.
@@ -699,7 +747,7 @@ export class DriveEngine extends EventEmitter {
         await this.storage.remove(state.cachePath);
         if (node?.kind === "file") clearedPinnedFiles += 1;
       }
-      state.cachePath = undefined; state.pinned = false; state.status = "cloud-only"; state.error = undefined;
+      state.cachePath = undefined; state.cacheRevision = undefined; state.pinned = false; state.status = "cloud-only"; state.error = undefined;
       this.store.setState(state); changed.push(state.nodeId);
     }
     await this.store.save();

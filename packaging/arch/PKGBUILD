@@ -1,5 +1,5 @@
 pkgname=omarchy-drive
-pkgver=1.0.0
+pkgver=1.0.1
 pkgrel=1
 pkgdesc="Unofficial Proton Drive desktop integration for Omarchy Quattro"
 arch=('any')

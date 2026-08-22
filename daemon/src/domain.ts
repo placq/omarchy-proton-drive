@@ -18,6 +18,7 @@ export interface NodeState {
   status: SyncStatus;
   pinned: boolean;
   remoteRevision: string;
+  cacheRevision?: string;
   baseRevision?: string;
   cachePath?: string;
   stagingPath?: string;

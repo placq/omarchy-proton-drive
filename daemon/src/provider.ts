@@ -39,9 +39,9 @@ export interface DriveProvider {
   listChildren(parentId: string, priority?: RequestPriority): Promise<DriveNode[]>;
   downloadToPath(nodeId: string, targetPath: string, onProgress?: (done: number, total: number) => void, knownNode?: DriveNode): Promise<DownloadResult>;
   upload(input: UploadInput): Promise<DriveNode>;
-  createFolder(parentId: string, name: string): Promise<DriveNode>;
-  rename(nodeId: string, name: string, knownNode?: DriveNode): Promise<DriveNode>;
-  move(nodeId: string, parentId: string, knownNode?: DriveNode): Promise<DriveNode>;
-  trash(nodeId: string): Promise<void>;
+  createFolder(parentId: string, name: string, signal?: AbortSignal): Promise<DriveNode>;
+  rename(nodeId: string, name: string, knownNode?: DriveNode, signal?: AbortSignal): Promise<DriveNode>;
+  move(nodeId: string, parentId: string, knownNode?: DriveNode, signal?: AbortSignal): Promise<DriveNode>;
+  trash(nodeId: string, signal?: AbortSignal): Promise<void>;
   getEvents(afterId?: string): AsyncIterable<DriveEvent>;
 }

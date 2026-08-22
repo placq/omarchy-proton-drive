@@ -32,13 +32,16 @@ plugin_dir="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/plugins/$plugin_id"
 mkdir -p "$plugin_dir"
 cp -a manifest.json omarchy LICENSE README.md "$plugin_dir/"
 mount_dir="${XDG_DATA_HOME:-$HOME/.local/share}/omarchy-drive/mount"; mkdir -p "$mount_dir"
+[[ $mount_dir != *$'\n'* ]] || { printf 'Mount path cannot contain a newline.\n' >&2; exit 1; }
+mount_environment=${mount_dir//\\/\\\\}; mount_environment=${mount_environment//\"/\\\"}
 bookmark_file="${XDG_CONFIG_HOME:-$HOME/.config}/gtk-3.0/bookmarks"; mkdir -p "$(dirname "$bookmark_file")"; touch "$bookmark_file"
 bookmark_uri="file://${mount_dir// /%20} Proton Drive"
 legacy_bookmark_uri="file://${HOME// /%20}/Proton%20Drive Proton Drive"
 sed -i "\|^${legacy_bookmark_uri//|/\\|}$|d" "$bookmark_file"
 grep -Fqx "$bookmark_uri" "$bookmark_file" || printf '%s\n' "$bookmark_uri" >> "$bookmark_file"
 if $fake; then
-  env_dir="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy-drive"; mkdir -p "$env_dir"; umask 077; printf 'OMARCHY_DRIVE_PROVIDER=fake\n' > "$env_dir/environment"
+  env_dir="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy-drive"; mkdir -p "$env_dir"; umask 077
+  printf 'OMARCHY_DRIVE_PROVIDER=fake\nOMARCHY_DRIVE_MOUNT="%s"\n' "$mount_environment" > "$env_dir/environment"
   systemctl --user daemon-reload; systemctl --user enable --now omarchy-drive.service omarchy-drive-dbus.service omarchy-drive-mount.service
 else
   printf '\nThis is an unofficial third-party application not supported by Proton.\n'
@@ -50,7 +53,8 @@ else
   "$cli_temporary" version >/dev/null
   mv -f -- "$cli_temporary" "$cli_target"
   env_dir="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy-drive"; mkdir -p "$env_dir"; umask 077
-  printf 'OMARCHY_DRIVE_PROVIDER=proton-cli\nOMARCHY_DRIVE_CLI=%s/.local/bin/proton-drive\n' "$HOME" > "$env_dir/environment"
+  cli_environment=${cli_target//\\/\\\\}; cli_environment=${cli_environment//\"/\\\"}
+  printf 'OMARCHY_DRIVE_PROVIDER=proton-cli\nOMARCHY_DRIVE_CLI="%s"\nOMARCHY_DRIVE_MOUNT="%s"\n' "$cli_environment" "$mount_environment" > "$env_dir/environment"
   systemctl --user daemon-reload; systemctl --user enable --now omarchy-drive.service omarchy-drive-dbus.service omarchy-drive-mount.service
   printf 'Click the Proton icon in the Omarchy bar and choose Zaloguj się.\n'
 fi

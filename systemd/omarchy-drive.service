@@ -15,7 +15,9 @@ NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=%h/.cache/omarchy-drive %h/.local/state/omarchy-drive %h/.cache/proton-drive-cli %h/.local/state/proton-drive-cli %h/.local/share/proton-drive-cli %t
+ReadWritePaths=%C/omarchy-drive %S/omarchy-drive %C/proton-drive-cli %S/proton-drive-cli %h/.local/share/proton-drive-cli %t
+RestrictSUIDSGID=yes
+LockPersonality=yes
 
 [Install]
 WantedBy=default.target

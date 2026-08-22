@@ -2,7 +2,7 @@
 
 Proton Drive for Omarchy is an unofficial third-party integration for Proton Drive on Omarchy Quattro. It is not affiliated with, supported by or endorsed by Proton AG or the Omarchy project.
 
-> **Current status: 1.0.0 release candidate.** The checksummed release runner, installation and post-install verification have been completed on a clean Omarchy machine. Final marketplace publication still depends on the remaining real-account recovery evidence and maintainer review; do not use an unpublished build with important Proton Drive data.
+> **Current status: unreleased 1.0.1 maintenance candidate.** The checksummed 1.0.0 release passed clean-machine installation; these newer safety fixes still require the release acceptance and remaining real-account recovery gates. Do not use an unpublished build with important Proton Drive data.
 
 ## Requirements
 
