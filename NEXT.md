@@ -1,6 +1,6 @@
 # Next milestone: 1.0.0 and marketplace publication
 
-Current state: the `1.0.0` release-candidate worktree passes 72 provider/core tests, 12 Python unit tests, the live session D-Bus test, installed-system diagnostics and the isolated real-account create/read/edit/rename/move/pin/conflict/trash smoke test. P1 UX (conflicts in the bar popup, honest CLI progress, upload cancellation, no cache-clear delay hack), P2 hardening (live D-Bus conflict signals, scrollable popup, l10n, error logging), and the planned pre-1.0 process/socket optimisations are implemented in the worktree.
+Current state: the `1.0.0` release-candidate tree passes 72 provider/core tests, 12 Python unit tests, the live session D-Bus test, installed-system diagnostics, the isolated real-account create/read/edit/rename/move/pin/conflict/trash smoke test and the checksummed clean-machine release installation. P1 UX (conflicts in the bar popup, honest CLI progress, upload cancellation, no cache-clear delay hack), P2 hardening (live D-Bus conflict signals, scrollable popup, l10n, error logging), and the planned pre-1.0 process/socket optimisations are implemented in the worktree.
 
 `1.0.0` means: first non-alpha release, published only after every gate below closes. Out of scope (recorded in ROADMAP "Deferred"): multi-account, search, sharing, file history, media streaming, non-Quattro distributions.
 
@@ -29,12 +29,12 @@ The guarded runners are implemented but do not count as evidence until executed 
 
 ## Krok 4 — Release 1.0.0
 
-- Done in the worktree: sync `1.0.0` across manifest/package(-lock)/rpc-server/sdk-provider/doctor/install-proton-cli/PKGBUILD/test-dbus/Service.qml; add the changelog and release-candidate README status.
+- Done in the worktree: sync `1.0.0` across manifest/package(-lock)/rpc-server/sdk-provider/doctor/install-proton-cli/PKGBUILD/test-dbus/Service.qml; add the changelog, release-candidate README status and the clean-machine release runner.
 - Tag `v1.0.0` → `./scripts/prepare-release.sh` → upload `dist/1.0.0/*` to the GitHub release → build the generated PKGBUILD on a clean machine.
 
 ## Krok 5 — Marketplace submission (manual installation)
 
-- Done in the worktree: README documents native installation, update, guarded removal and external dependencies; license is declared in the manifest; `preview.png` is an original generic illustration without third-party marks.
+- Done in the worktree: README documents native installation, update, guarded removal and external dependencies; license is declared in the manifest; `preview.png` is an original generic illustration without third-party marks; `docs/MARKETPLACE-SUBMISSION.md` contains the completed submission draft.
 - Validate the clean release commit and submit via the HANCORE-linux/omarchy-plugin-marketplace issue form: category **System**, tags `bar`, `quickshell`, `system`, and suggested tag `cloud-storage`.
 - Maintainer notes must request the `manual-setup` label because the standard `omarchy plugin add` command cannot install the required daemon/package/services; include the expected security-baseline capabilities and the `doctor.sh` post-install check.
 - After approval: monitor first reports, keep updates conservative until field evidence (ROADMAP Phase 7).

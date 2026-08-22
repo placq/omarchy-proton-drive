@@ -1,8 +1,14 @@
 # Installation acceptance test
 
-Status: **installation, reboot, session restore, read path and the isolated real-account write/conflict smoke test passed; offline-reboot-reconnect, revoked-session and marketplace-release installation remain publication gates**.
+Status: **installation, reboot, session restore, read path, the isolated real-account write/conflict smoke test and the checksummed 1.0.0 release installation passed; marketplace listing remains pending maintainer review**.
 
-The 72-test automated suite, 12 Python unit tests, live session D-Bus integration, fake-provider FUSE test and real-account read path pass on Omarchy Quattro, including browser login, OS secret storage, Unix socket, FUSE mount, one Nautilus bookmark, account/storage bar panel, on-demand download and service restart recovery. Automated coverage also includes desktop-style atomic replacement, hostile FUSE names and links, malformed RPC values, failed SQLite transaction replay, remote deletion during local edits, background-commit setup recovery, ambiguous post-commit crash recovery and unsafe uninstall refusal. Marketplace installation from a published release artifact is not yet claimed.
+The 72-test automated suite, 12 Python unit tests, live session D-Bus integration, fake-provider FUSE test and real-account read path pass on Omarchy Quattro, including browser login, OS secret storage, Unix socket, FUSE mount, one Nautilus bookmark, account/storage bar panel, on-demand download and service restart recovery. Automated coverage also includes desktop-style atomic replacement, hostile FUSE names and links, malformed RPC values, failed SQLite transaction replay, remote deletion during local edits, background-commit setup recovery, ambiguous post-commit crash recovery and unsafe uninstall refusal.
+
+## 2026-08-22 — checksummed 1.0.0 release acceptance
+
+The maintainer ran `scripts/run-clean-machine-release.sh` on a clean Omarchy machine. The run downloaded the public `v1.0.0` assets, verified `SHA256SUMS`, completed `preflight`, installed the package and plugin, then completed both the post-install `doctor.sh` check and `verify-install`. The wrapper reported success and retained the two output logs locally; no account identity, credentials or raw Proton data were added to the repository.
+
+The wrapper does not authenticate an account or create real-account fixtures. Any real-account mutations must remain confined to the dedicated account and `/OmarchyDriveIntegrationTests/`.
 
 ## 2026-08-15 — reboot acceptance
 

@@ -16,7 +16,7 @@ This document records the submission metadata and the release checks required be
 | License | MIT |
 | Preview | root `preview.png`; original generic illustration without third-party marks |
 
-The repository is public, the plugin ID is outside the reserved `omarchy.*` namespace, and the ID was not present in the marketplace registry when checked on 2026-08-21.
+The repository is public, the plugin ID is outside the reserved `omarchy.*` namespace, and the ID was not present in the marketplace registry when checked on 2026-08-22.
 
 ## Manual installation requirement
 
@@ -49,8 +49,8 @@ Before submission:
 2. Record the resulting evidence in [INSTALLATION-TEST.md](INSTALLATION-TEST.md) and [TEST-STATUS.md](TEST-STATUS.md), without credentials, account identity or filenames.
 3. Run `npm ci --ignore-scripts`, `npm test`, `npm run check`, `npm run validate` and `npm audit --omit=dev` from the final tree.
 4. Commit the release, create the exact tag `v1.0.0`, then run `./scripts/prepare-release.sh` from the clean tagged commit.
-5. Publish the generated archive, PKGBUILD, checksum file and clean-machine runner in the GitHub release; verify the checksums and installation on a clean Omarchy Quattro machine.
-6. Confirm that the public repository root contains `manifest.json`, `README.md`, `LICENSE` and `preview.png`, with no symlinks in the tracked plugin tree.
+5. Publish the generated archive, PKGBUILD, checksum file and clean-machine runner in the GitHub release; verify the checksums and installation on a clean Omarchy Quattro machine. The public 1.0.0 artifact and the bundled clean-machine runner have now passed this gate.
+6. Confirm that the public repository root contains `manifest.json`, `README.md`, `LICENSE` and `preview.png`, with no symlinks in the tracked plugin tree. This repository satisfies that structure.
 
 ## Submission draft
 

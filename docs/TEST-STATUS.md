@@ -1,6 +1,6 @@
 # Test status
 
-Automated checks verified 2026-08-21 for the `1.0.0` release-candidate worktree: the 72-test provider/core suite, 3-test release-gate helper suite, 2-test shared RPC client suite and 7-test pure Nautilus helper suite pass in this repository. Desktop and real-account coverage was last exercised on Omarchy Quattro workstations as recorded below.
+Automated checks verified 2026-08-22 for the `1.0.0` release tree: the 72-test provider/core suite, 3-test release-gate helper suite, 2-test shared RPC client suite and 7-test pure Nautilus helper suite pass in this repository. Desktop and real-account coverage was last exercised on Omarchy Quattro workstations as recorded below.
 
 | Area | Coverage | Status |
 |---|---|---|
@@ -22,7 +22,7 @@ Automated checks verified 2026-08-21 for the `1.0.0` release-candidate worktree:
 | Real Proton auth/session | official browser login, Secret Service session, root listing, on-demand download and automated expired/revoked error classification | Runtime path passed; manual remote revocation remains a publication gate |
 | Omarchy/Quickshell/Nautilus runtime | installed plugin validation/version match, right-side bar placement, theme-aware icon, account/storage panel, hidden FUSE mount, single sidebar bookmark and clean service recovery | Passed on Omarchy Quattro with the writable real-account provider |
 | Login/logout recovery UX | stale mount cleanup, retry recovery, animated loading state and no transient integration error during normal startup/logout | Passed on Omarchy Quattro with a real account |
-| Fresh-machine product flow | clean-machine install, login, session restore, browse and on-demand open on a second PC | Passed from a checkout; checksummed marketplace-release installation remains gated |
+| Fresh-machine product flow | clean-machine install, login, session restore, browse and on-demand open on a second PC | Passed from a checkout; checksummed `1.0.0` release install and `verify-install` passed on 2026-08-22 |
 | Real-account write path | isolated `/OmarchyDriveIntegrationTests/`: create, byte-for-byte read/edit, rename, move, pin/unpin, forced remote conflict, save-both and trash cleanup | Passed on 2026-08-15; offline/revoked-session matrix remains a publication gate |
 
-The remaining real-account and clean-machine evidence is collected by `scripts/real_account_recovery.py` and the release asset `clean-machine-acceptance.sh`. Their local helper/tamper tests pass, but this table will not mark those runtime gates passed until their target-machine evidence reports `"complete": true`.
+The remaining real-account recovery evidence is collected by `scripts/real_account_recovery.py`. Its local helper/tamper tests pass; the clean-machine release gate is covered by the public artifact runner and the 2026-08-22 acceptance entry above.
