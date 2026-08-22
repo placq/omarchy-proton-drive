@@ -497,9 +497,7 @@ Rectangle {
                     foreground: Color.popups.text
                     fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
                     fontSize: Style.font.caption
-                    ToolTip.visible: hovered
-                    ToolTip.delay: 450
-                    ToolTip.text: "Removes clean, unpinned cache files to free disk space. Always-available files and unsaved changes are kept."
+                    tooltipText: "Removes temporary local cache. Always-available files and unsaved changes are kept."
                     onClicked: root.clearCache()
                 }
 
@@ -513,9 +511,7 @@ Rectangle {
                     foreground: Color.popups.text
                     fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
                     fontSize: Style.font.caption
-                    ToolTip.visible: hovered
-                    ToolTip.delay: 450
-                    ToolTip.text: "Removes local copies marked Always available and unpins them. Cloud files and unsaved changes are kept."
+                    tooltipText: "Removes Always available local copies. Cloud files and unsaved changes are kept."
                     onClicked: root.clearPinnedCache()
                 }
             }
