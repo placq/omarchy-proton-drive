@@ -81,6 +81,14 @@ The widget uses these status indicators:
 
 The status card shows account identity, remote storage usage, connection state, transfers and safe local-cache controls. Proton Drive remains available as a single Nautilus sidebar bookmark. Real cloud files can be browsed, opened, created, edited, moved, renamed and trashed. Offline edits remain staged locally and are retried after reconnect; a changed remote revision creates a preserved local conflict copy.
 
+## Screenshots
+
+The compact bar widget and status card are shown below.
+
+![Proton Drive status card](screenshots/screen1.png)
+
+![Proton Drive in Nautilus](screenshots/screen2.png)
+
 ## Development
 
 On an Omarchy Quattro test machine or VM, use `--fake` for the fully writable development fixture:
