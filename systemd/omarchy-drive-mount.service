@@ -17,7 +17,6 @@ Restart=on-failure
 RestartSec=5
 NoNewPrivileges=yes
 PrivateTmp=yes
-ProtectSystem=full
 RestrictSUIDSGID=yes
 LockPersonality=yes
 
