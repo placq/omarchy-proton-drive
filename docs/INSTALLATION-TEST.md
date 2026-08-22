@@ -1,8 +1,14 @@
 # Installation acceptance test
 
-Status: **installation, reboot, session restore, read path and the isolated real-account write/conflict smoke test passed; offline-reboot-reconnect, revoked-session and marketplace-release installation remain publication gates**.
+Status: **installation, reboot, session restore, read path, the isolated real-account write/conflict smoke test and the checksummed 1.0.0 release installation passed; marketplace listing remains pending maintainer review**.
 
-The 48-test automated suite, live session D-Bus integration, fake-provider desktop test and real-account read path pass on Omarchy Quattro, including browser login, OS secret storage, Unix socket, FUSE mount, one Nautilus bookmark, account/storage bar panel, on-demand download and service restart recovery. Marketplace installation from a published release artifact is not yet claimed.
+The 72-test automated suite, 12 Python unit tests, live session D-Bus integration, fake-provider FUSE test and real-account read path pass on Omarchy Quattro, including browser login, OS secret storage, Unix socket, FUSE mount, one Nautilus bookmark, account/storage bar panel, on-demand download and service restart recovery. Automated coverage also includes desktop-style atomic replacement, hostile FUSE names and links, malformed RPC values, failed SQLite transaction replay, remote deletion during local edits, background-commit setup recovery, ambiguous post-commit crash recovery and unsafe uninstall refusal.
+
+## 2026-08-22 — checksummed 1.0.0 release acceptance
+
+The maintainer ran `scripts/run-clean-machine-release.sh` on a clean Omarchy machine. The run downloaded the public `v1.0.0` assets, verified `SHA256SUMS`, completed `preflight`, installed the package and plugin, then completed both the post-install `doctor.sh` check and `verify-install`. The wrapper reported success and retained the two output logs locally; no account identity, credentials or raw Proton data were added to the repository.
+
+The wrapper does not authenticate an account or create real-account fixtures. Any real-account mutations must remain confined to the dedicated account and `/OmarchyDriveIntegrationTests/`.
 
 ## 2026-08-15 — reboot acceptance
 
@@ -29,4 +35,33 @@ Release gate:
 7. drag a file into Drive and verify remote content through Nautilus (the automated equivalent has passed through the same daemon write path);
 8. edit offline, reboot, reconnect and verify upload;
 9. ~~force a remote revision conflict and verify both copies;~~ passed with exact local-byte verification;
-10. uninstall with dirty staging and verify refusal.
+10. uninstall with dirty staging and verify refusal (automated guard passes; repeat on the installed release package).
+
+## Reproducible 1.0 gate runners
+
+On the dedicated account, run the phases printed by:
+
+```bash
+./scripts/real_account_recovery.py --confirm setup
+./scripts/real_account_recovery.py status
+```
+
+The runner refuses mutations without `--confirm`, verifies every remote ID remains under `/OmarchyDriveIntegrationTests/recovery-*`, proves the offline reboot by a changed kernel `boot_id`, compares fresh remote downloads by SHA-256, and retains no raw journal or account identity. `stage-rate-limit --confirm-rate-limit-observed` must be invoked only after a real, non-induced provider rate-limit condition is present; the runner never hammers Proton to create one. Extra account-specific log needles are read from a private `0600` file via `audit-logs --forbid-file`, never from command-line values.
+
+For the clean machine, copy only `dist/<version>/` (not a checkout), verify/install the artifact following its release instructions, then use its checksummed runner:
+
+```bash
+./clean-machine-acceptance.sh preflight
+# with the previous checksummed version installed and authenticated:
+./clean-machine-acceptance.sh --confirm-dedicated-account snapshot-update
+# install the current checksummed artifact
+./clean-machine-acceptance.sh --confirm-dedicated-account verify-update
+./clean-machine-acceptance.sh verify-install
+./clean-machine-acceptance.sh --confirm-dedicated-account snapshot
+./clean-machine-acceptance.sh --confirm-dedicated-account verify-uninstall-refusal
+# reinstall the same checksummed artifact
+./clean-machine-acceptance.sh --confirm-dedicated-account verify-reinstall
+./clean-machine-acceptance.sh status
+```
+
+The snapshot is anonymized: it stores aggregate counts and digests of node IDs/staging bytes, never account identity or raw file contents. It requires disposable pinned, staged and conflicted fixtures so a vacuous reinstall cannot pass.

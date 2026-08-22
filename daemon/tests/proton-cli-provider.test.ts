@@ -1,10 +1,26 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { OfficialCliProvider } from "../src/official-cli-provider.ts";
+import { cliExecutionLimits, OfficialCliProvider } from "../src/official-cli-provider.ts";
 import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { AuthenticationRequiredError, OfflineError } from "../src/domain.ts";
+import { clampedIntegerSetting } from "../src/settings.ts";
+
+test("official CLI execution limits are environment-tunable with safe defaults", () => {
+  assert.deepEqual(cliExecutionLimits({}), { timeoutMs: 300_000, maxBufferBytes: 64 * 1024 * 1024 });
+  assert.deepEqual(cliExecutionLimits({
+    OMARCHY_DRIVE_CLI_TIMEOUT_MS: "45000",
+    OMARCHY_DRIVE_CLI_MAX_BUFFER_BYTES: "8388608",
+  }), { timeoutMs: 45_000, maxBufferBytes: 8 * 1024 * 1024 });
+  assert.deepEqual(cliExecutionLimits({
+    OMARCHY_DRIVE_CLI_TIMEOUT_MS: "invalid",
+    OMARCHY_DRIVE_CLI_MAX_BUFFER_BYTES: "-1",
+  }), { timeoutMs: 300_000, maxBufferBytes: 64 * 1024 * 1024 });
+  assert.equal(clampedIntegerSetting("VALUE", 30, 10, { VALUE: "invalid" }), 30);
+  assert.equal(clampedIntegerSetting("VALUE", 30, 10, { VALUE: "-1" }), 10);
+  assert.equal(clampedIntegerSetting("VALUE", 30, 10, { VALUE: "1.5" }), 30);
+});
 
 test("official CLI provider exposes account identity and Drive quota", async () => {
   const provider = new OfficialCliProvider("/unused", async args => {

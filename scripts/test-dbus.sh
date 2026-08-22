@@ -38,14 +38,8 @@ export OMARCHY_DRIVE_SOCKET="$XDG_RUNTIME_DIR/omarchy-drive.sock"
 mkdir -p "$XDG_RUNTIME_DIR"
 chmod 700 "$XDG_RUNTIME_DIR"
 
-./scripts/node-ts.sh daemon/src/main.ts >"$test_root/daemon.log" 2>&1 &
+(sleep 0.2; exec ./scripts/node-ts.sh daemon/src/main.ts) >"$test_root/daemon.log" 2>&1 &
 daemon_pid=$!
-for _attempt in {1..100}; do
-  [[ -S $OMARCHY_DRIVE_SOCKET ]] && break
-  kill -0 "$daemon_pid" 2>/dev/null || { sed -n '1,120p' "$test_root/daemon.log" >&2; exit 1; }
-  sleep 0.05
-done
-[[ -S $OMARCHY_DRIVE_SOCKET ]] || { printf 'Daemon socket did not appear.\n' >&2; exit 1; }
 
 dbus-run-session -- bash -eu -o pipefail -c '
   python3 ipc/dbus/omarchy_drive_dbus.py >"$1/dbus.log" 2>&1 &
@@ -56,12 +50,13 @@ dbus-run-session -- bash -eu -o pipefail -c '
     kill -0 "$bridge_pid" 2>/dev/null || { sed -n '\''1,120p'\'' "$1/dbus.log" >&2; exit 1; }
     sleep 0.05
   done
-  grep -q '\''0.3.0-alpha.2'\'' "$1/version.out"
+  grep -q '\''1.0.0'\'' "$1/version.out"
   gdbus call --session --dest io.github.placq.OmarchyProtonDrive1 --object-path /io/github/placq/OmarchyProtonDrive1 --method io.github.placq.OmarchyProtonDrive1.GetStatus | grep -q '\''"connected": true'\''
   introspect=$(gdbus introspect --session --dest io.github.placq.OmarchyProtonDrive1 --object-path /io/github/placq/OmarchyProtonDrive1)
   for signal in ConflictDetected ConflictResolved AuthRequired; do
     grep -q "$signal(" <<<"$introspect" || { printf '\''Missing D-Bus signal: %s\n'\'' "$signal" >&2; exit 1; }
   done
+  ! grep -q '\''watch_reconnect'\'' "$1/dbus.log" || { sed -n '\''1,120p'\'' "$1/dbus.log" >&2; exit 1; }
 ' _ "$test_root"
 
 printf 'D-Bus runtime integration passed.\n'

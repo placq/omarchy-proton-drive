@@ -85,12 +85,21 @@ test("network loss queues staged data and retry commits it", async () => {
 });
 
 test("remote edit creates conflict and preserves local bytes", async () => {
-  const { provider, engine } = await fixture(); await engine.listChildren("docs"); await engine.materialize("welcome");
+  const { provider, engine } = await fixture(); await engine.listChildren("docs");
+  const maxByteName = `${"ą".repeat(127)}a`; assert.equal(Buffer.byteLength(maxByteName), 255);
+  await engine.rename("welcome", maxByteName); await engine.materialize("welcome");
   await engine.stageBytes("welcome", new TextEncoder().encode("local edit")); provider.remoteEdit("welcome", new TextEncoder().encode("remote edit"));
   const conflict = await engine.commit("welcome"); assert.equal(conflict.status, "conflict"); assert.ok(conflict.stagingPath);
   assert.equal(new TextDecoder().decode(await engine.storage.read(conflict.stagingPath!)), "local edit");
+  const preservedPath = conflict.error?.replace("Both versions preserved; local copy: ", ""); assert.ok(preservedPath);
+  assert.ok(Buffer.byteLength(preservedPath!.split("/").at(-1)!, "utf8") <= 255);
+  assert.equal(new TextDecoder().decode(await engine.storage.read(preservedPath!)), "local edit");
   await assert.rejects(engine.evict("welcome"), UnsafeEvictionError);
   assert.equal(new TextDecoder().decode(await provider.readBytes("welcome")), "remote edit");
+  await engine.resolveConflict("welcome", "save-both");
+  const copy = (await provider.listChildren("docs")).find(node => node.id !== "welcome"); assert.ok(copy);
+  assert.ok(Buffer.byteLength(copy!.name, "utf8") <= 255);
+  assert.equal(new TextDecoder().decode(await provider.readBytes(copy!.id)), "local edit");
 });
 
 test("conflicts can keep local, keep remote or save both versions", async () => {
@@ -119,6 +128,47 @@ test("failed conflict finalisation never deletes persistent staging", async () =
   await assert.rejects(engine.resolveConflict("welcome", "keep-remote"), OfflineError);
   assert.equal(engine.getState("welcome")?.status, "conflict");
   assert.equal(new TextDecoder().decode(await engine.storage.read(stagingPath)), "local");
+});
+
+test("remote deletion preserves staged bytes through every conflict resolution", async () => {
+  for (const resolution of ["keep-local", "keep-remote", "save-both"] as const) {
+    const { provider, engine } = await fixture(); await engine.listChildren("docs"); await engine.materialize("welcome");
+    await engine.stageBytes("welcome", new TextEncoder().encode(`local after delete: ${resolution}`));
+    await provider.trash("welcome"); await engine.processEvents();
+    const conflict = engine.getState("welcome")!;
+    assert.equal(conflict.status, "conflict"); assert.equal(conflict.remoteDeleted, true); assert.ok(conflict.stagingPath);
+    assert.equal(new TextDecoder().decode(await engine.storage.read(conflict.stagingPath)), `local after delete: ${resolution}`);
+    await engine.resolveConflict("welcome", resolution, resolution === "save-both" ? "Recovered.txt" : undefined);
+    assert.equal(engine.getState("welcome"), undefined);
+    const children = await provider.listChildren("docs");
+    if (resolution === "keep-remote") assert.deepEqual(children, []);
+    else {
+      const restored = children.find(child => child.name === (resolution === "save-both" ? "Recovered.txt" : "Welcome.txt")); assert.ok(restored);
+      assert.equal(new TextDecoder().decode(await provider.readBytes(restored!.id)), `local after delete: ${resolution}`);
+    }
+  }
+  const nested = await fixture(); await nested.engine.listChildren("root"); await nested.engine.listChildren("docs"); await nested.engine.pin("docs", true);
+  await nested.engine.stageBytes("welcome", new TextEncoder().encode("survive deleted folder"));
+  await nested.provider.trash("docs"); nested.provider.emitTreeRemoval(); await nested.engine.processEvents();
+  assert.equal(nested.engine.getState("welcome")?.status, "conflict");
+  assert.equal(nested.engine.getState("docs")?.remoteDeleted, true);
+  assert.equal(new TextDecoder().decode(await nested.engine.storage.read(nested.engine.getState("welcome")!.stagingPath!)), "survive deleted folder");
+  await assert.rejects(nested.engine.trash("docs"), UnsafeMutationError);
+  await nested.engine.resolveConflict("welcome", "keep-local");
+  const restoredFolder = (await nested.provider.listChildren("root")).find(node => node.name === "Documents"); assert.ok(restoredFolder);
+  const restoredFile = (await nested.provider.listChildren(restoredFolder!.id)).find(node => node.name === "Welcome.txt"); assert.ok(restoredFile);
+  assert.equal(new TextDecoder().decode(await nested.provider.readBytes(restoredFile!.id)), "survive deleted folder");
+
+  const acceptDeletedTree = await fixture(); await acceptDeletedTree.engine.listChildren("root"); await acceptDeletedTree.engine.listChildren("docs");
+  await acceptDeletedTree.engine.stageBytes("welcome", new TextEncoder().encode("discard only when explicitly accepted"));
+  await acceptDeletedTree.provider.trash("docs"); await acceptDeletedTree.engine.processEvents();
+  await acceptDeletedTree.engine.resolveConflict("welcome", "keep-remote");
+  assert.equal(acceptDeletedTree.engine.store.getNode("docs"), undefined);
+  assert.equal(acceptDeletedTree.engine.store.getNode("welcome"), undefined);
+
+  const clean = await fixture(); await clean.engine.listChildren("root"); await clean.engine.listChildren("docs");
+  await clean.provider.trash("docs"); await clean.engine.processEvents();
+  assert.equal(clean.engine.store.getNode("docs"), undefined); assert.equal(clean.engine.store.getNode("welcome"), undefined);
 });
 
 test("pinning a folder recursively pins nested files", async () => {
@@ -222,6 +272,26 @@ test("SQLite state and journals remain private and corruption is never silently 
   await assert.rejects(new StateStore(corrupt).load(), /database|encrypted/i);
 });
 
+test("a failed SQLite transaction is retried without losing pending state", async () => {
+  const root = await mkdtemp(join(tmpdir(), "omarchy-drive-sqlite-retry-"));
+  const sqlite = join(root, "state.sqlite"); const store = new StateStore(sqlite); await store.load();
+  store.setNode({ id:"root", parentId:null, name:"Proton Drive", kind:"folder", size:0, modifiedAt:1, revision:"1" });
+  store.setState({ nodeId:"root", status:"queued", pinned:false, remoteRevision:"1", stagingPath:join(root, "precious.stage"), lastAccessedAt:1 });
+  store.setLastEventId("event-1");
+  const database = (store as unknown as { database: { exec(sql: string): unknown } }).database;
+  const originalExec = database.exec.bind(database); let failCommit = true;
+  database.exec = (sql: string) => {
+    if (sql === "COMMIT" && failCommit) { failCommit = false; throw new Error("simulated commit failure"); }
+    return originalExec(sql);
+  };
+  await assert.rejects(store.save(), /simulated commit failure/);
+  await store.save();
+  const reopened = new StateStore(sqlite); await reopened.load();
+  assert.equal(reopened.getState("root")?.status, "queued");
+  assert.equal(reopened.getState("root")?.stagingPath, join(root, "precious.stage"));
+  assert.equal(reopened.getLastEventId(), "event-1");
+});
+
 test("pinned file refreshes from Drive events", async () => {
   const { provider, engine } = await fixture(); await engine.listChildren("docs"); await engine.pin("welcome", true);
   provider.remoteEdit("welcome", new TextEncoder().encode("fresh remote")); await engine.processEvents();
@@ -262,6 +332,42 @@ test("unicode, zero byte, mkdir, rename, move and trash use native provider oper
   assert.equal((await engine.listChildren(folder.id)).length, 0);
 });
 
+test("atomic file replacement preserves bytes, pin intent and rollback safety", async () => {
+  const success = await fixture(); await success.engine.listChildren("docs"); await success.engine.pin("welcome", true);
+  const temporary = await success.engine.createFile("docs", ".editor-save.tmp", new TextEncoder().encode("atomic replacement"));
+  const replaced = await success.engine.replace(temporary.id, "welcome");
+  assert.equal(replaced.id, temporary.id); assert.equal(replaced.name, "Welcome.txt");
+  assert.equal(success.engine.getState(replaced.id)?.status, "pinned"); assert.equal(success.engine.store.getNode("welcome"), undefined);
+  assert.equal(new TextDecoder().decode(await success.provider.readBytes(replaced.id)), "atomic replacement");
+  assert.deepEqual((await success.provider.listChildren("docs")).map(node => node.name), ["Welcome.txt"]);
+
+  const rollback = await fixture(); await rollback.engine.listChildren("docs");
+  const rollbackSource = await rollback.engine.createFile("docs", ".rollback.tmp", new TextEncoder().encode("new bytes"));
+  const originalRename = rollback.provider.rename.bind(rollback.provider);
+  rollback.provider.rename = async (nodeId, name) => {
+    if (nodeId === rollbackSource.id) throw new OfflineError("simulated source rename failure");
+    return originalRename(nodeId, name);
+  };
+  await assert.rejects(rollback.engine.replace(rollbackSource.id, "welcome"), OfflineError);
+  const afterRollback = await rollback.provider.listChildren("docs");
+  assert.ok(afterRollback.some(node => node.id === "welcome" && node.name === "Welcome.txt"));
+  assert.ok(afterRollback.some(node => node.id === rollbackSource.id && node.name === ".rollback.tmp"));
+  assert.match(new TextDecoder().decode(await rollback.provider.readBytes("welcome")), /fake provider/);
+  assert.equal(new TextDecoder().decode(await rollback.provider.readBytes(rollbackSource.id)), "new bytes");
+
+  const crossFolder = await fixture(); await crossFolder.engine.listChildren("root"); await crossFolder.engine.listChildren("docs");
+  const crossSource = await crossFolder.engine.createFile("root", ".cross-folder.tmp", new TextEncoder().encode("cross-folder bytes"));
+  const crossRename = crossFolder.provider.rename.bind(crossFolder.provider);
+  crossFolder.provider.rename = async (nodeId, name) => {
+    if (nodeId === crossSource.id) throw new OfflineError("simulated cross-folder rename failure");
+    return crossRename(nodeId, name);
+  };
+  await assert.rejects(crossFolder.engine.replace(crossSource.id, "welcome"), OfflineError);
+  assert.ok((await crossFolder.provider.listChildren("root")).some(node => node.id === crossSource.id && node.name === ".cross-folder.tmp"));
+  assert.ok((await crossFolder.provider.listChildren("docs")).some(node => node.id === "welcome" && node.name === "Welcome.txt"));
+  assert.equal(new TextDecoder().decode(await crossFolder.provider.readBytes(crossSource.id)), "cross-folder bytes");
+});
+
 test("folders cannot be moved into their own descendants", async () => {
   const { engine } = await fixture(); await engine.listChildren("root"); await engine.listChildren("docs");
   const nested = await engine.createFolder("docs", "Nested");
@@ -296,6 +402,9 @@ test("local storage maps long Proton UIDs to safe stable filenames", async () =>
   const first = storage.cachePath(uid);
   assert.equal(first, storage.cachePath(uid));
   assert.match(first, /\/uid-[a-f0-9]{64}$/);
+  const equalA = join(root, "equal-a"); const equalB = join(root, "equal-b"); const different = join(root, "different");
+  await writeFile(equalA, Buffer.alloc(70_001, 0x5a)); await writeFile(equalB, Buffer.alloc(70_001, 0x5a)); await writeFile(different, Buffer.alloc(70_001, 0x5b));
+  assert.equal(await storage.sameBytes(equalA, equalB), true); assert.equal(await storage.sameBytes(equalA, different), false);
   await rm(root, { recursive: true, force: true });
 });
 
@@ -305,6 +414,67 @@ test("daemon restart recovers interrupted upload from persistent staging", async
   const restarted=new DriveEngine(provider, new StateStore(join(root, "state/state.sqlite")), new LocalStorage(join(root, "cache"), join(root, "state"))); await restarted.initialize();
   assert.equal(restarted.getState("welcome")?.status, "queued"); assert.ok(restarted.getState("welcome")?.stagingPath);
   await restarted.syncQueued(); assert.equal(new TextDecoder().decode(await provider.readBytes("welcome")), "survives crash");
+});
+
+test("restart recognizes an upload committed remotely before local state was saved", async () => {
+  const { root, provider, engine } = await fixture(); await engine.listChildren("docs");
+  const bytes = new TextEncoder().encode("remote commit won the crash race");
+  await engine.stageBytes("welcome", bytes);
+  const interrupted = engine.getState("welcome")!; interrupted.status = "uploading"; engine.store.setState(interrupted); await engine.store.save();
+  provider.remoteEdit("welcome", bytes);
+  const restarted = new DriveEngine(provider, new StateStore(join(root, "state/state.sqlite")), new LocalStorage(join(root, "cache"), join(root, "state")));
+  await restarted.initialize();
+  assert.equal(restarted.getState("welcome")?.interruptedUpload, true);
+  const recovered = await restarted.syncQueued();
+  assert.equal(recovered, undefined);
+  assert.equal(restarted.getState("welcome")?.status, "cached");
+  assert.equal(restarted.getState("welcome")?.stagingPath, undefined);
+  assert.equal(new TextDecoder().decode(await provider.readBytes("welcome")), "remote commit won the crash race");
+});
+
+test("restart keeps same-size divergent remote bytes as a recoverable conflict", async () => {
+  const { root, provider, engine } = await fixture(); await engine.listChildren("docs");
+  const local = new TextEncoder().encode("local bytes"); const remote = new TextEncoder().encode("other bytes");
+  assert.equal(local.byteLength, remote.byteLength);
+  await engine.stageBytes("welcome", local);
+  const interrupted = engine.getState("welcome")!; interrupted.status = "uploading"; engine.store.setState(interrupted); await engine.store.save();
+  provider.remoteEdit("welcome", remote);
+  const restarted = new DriveEngine(provider, new StateStore(join(root, "state/state.sqlite")), new LocalStorage(join(root, "cache"), join(root, "state")));
+  await restarted.initialize(); await restarted.syncQueued();
+  const conflict = restarted.getState("welcome")!;
+  assert.equal(conflict.status, "conflict"); assert.ok(conflict.stagingPath);
+  assert.equal(new TextDecoder().decode(await restarted.storage.read(conflict.stagingPath)), "local bytes");
+  assert.equal(new TextDecoder().decode(await provider.readBytes("welcome")), "other bytes");
+});
+
+test("failed local finalisation after a remote commit retains staging and self-recovers", async () => {
+  const { provider, engine } = await fixture(); await engine.listChildren("docs");
+  await engine.stageBytes("welcome", new TextEncoder().encode("remote safe, local save failed"));
+  const originalSave = engine.store.save.bind(engine.store); let saves = 0;
+  engine.store.save = async () => {
+    saves += 1;
+    if (saves === 2) throw new Error("simulated final state failure");
+    return originalSave();
+  };
+  const pending = await engine.commit("welcome");
+  assert.equal(pending.status, "queued"); assert.equal(pending.interruptedUpload, true); assert.ok(pending.stagingPath);
+  assert.equal(new TextDecoder().decode(await engine.storage.read(pending.stagingPath!)), "remote safe, local save failed");
+  assert.equal(new TextDecoder().decode(await provider.readBytes("welcome")), "remote safe, local save failed");
+  const recovered = await engine.commit("welcome");
+  assert.equal(recovered.status, "cached"); assert.equal(recovered.stagingPath, undefined);
+  assert.equal(new TextDecoder().decode(await provider.readBytes("welcome")), "remote safe, local save failed");
+});
+
+test("restart removes leftover staging only after committed state was durable", async () => {
+  const { root, provider, engine } = await fixture(); await engine.listChildren("docs"); await engine.materialize("welcome");
+  const stagingPath = await engine.beginWrite("welcome");
+  const committed = engine.getState("welcome")!; committed.status = "cached"; committed.baseRevision = undefined;
+  engine.store.setState(committed); await engine.store.save();
+  assert.equal(await engine.storage.exists(stagingPath), true);
+  const restarted = new DriveEngine(provider, new StateStore(join(root, "state/state.sqlite")), new LocalStorage(join(root, "cache"), join(root, "state")));
+  await restarted.initialize();
+  assert.equal(restarted.getState("welcome")?.status, "cached"); assert.equal(restarted.getState("welcome")?.stagingPath, undefined);
+  assert.equal(await restarted.storage.exists(stagingPath), false);
 });
 
 test("large upload is committed from a file path without engine buffering", async () => {
@@ -324,6 +494,27 @@ test("filesystem commit is persisted as queued before background upload", async 
   await started; assert.equal(engine.getState("welcome")?.status, "uploading");
   assert.equal(await readFile(await engine.materialize("welcome"), "utf8"), "background");
   releaseUpload(); await engine.commit("welcome"); assert.equal(engine.getState("welcome")?.status, "cached");
+});
+
+test("background commit setup failure stays queued with exact staging bytes", async () => {
+  const { provider, engine } = await fixture(); await engine.listChildren("docs");
+  await engine.stageBytes("welcome", new TextEncoder().encode("survive setup failure"));
+  const originalSize = engine.storage.size.bind(engine.storage); let sizeCalls = 0;
+  engine.storage.size = async path => {
+    sizeCalls += 1;
+    if (sizeCalls === 2) throw new Error("simulated storage failure");
+    return originalSize(path);
+  };
+  await engine.queueCommit("welcome");
+  await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => setImmediate(resolve));
+  const queued = engine.getState("welcome")!;
+  assert.equal(queued.status, "queued"); assert.ok(queued.stagingPath);
+  assert.equal(new TextDecoder().decode(await engine.storage.read(queued.stagingPath)), "survive setup failure");
+  assert.notEqual(new TextDecoder().decode(await provider.readBytes("welcome")), "survive setup failure");
+  engine.storage.size = originalSize;
+  assert.equal((await engine.commit("welcome")).status, "cached");
+  assert.equal(new TextDecoder().decode(await provider.readBytes("welcome")), "survive setup failure");
 });
 
 test("cancelling a queued upload reverts to dirty and keeps staged bytes", async () => {

@@ -6,8 +6,8 @@ __pycache__/
 .run-cache/
 .run-state/
 upload/
-pkg/
-src/
+/pkg/
+/src/
 *.pkg.tar.*
 dist/
 packaging/arch/pkg/

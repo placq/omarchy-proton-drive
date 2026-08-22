@@ -1,30 +1,27 @@
 #!/usr/bin/env python3
 """FUSE3 adapter. Requires Arch packages python-pyfuse3 and python-trio."""
 from __future__ import annotations
-import argparse, errno, json, os, socket, stat, time
+import argparse, errno, math, os, stat, sys, time
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from ipc.rpc_client import RpcClient, RpcError
 import pyfuse3
 import trio
 
 def seconds_setting(name, default):
-    try: return max(0.0, float(os.environ.get(name, default)))
-    except ValueError: return default
+    try: value = float(os.environ.get(name, default))
+    except (TypeError, ValueError): return default
+    return value if math.isfinite(value) and value >= 0 else default
 
 ATTRIBUTE_TTL = seconds_setting("OMARCHY_DRIVE_FUSE_ATTRIBUTE_TTL", 5.0)
 DIRECTORY_TTL = seconds_setting("OMARCHY_DRIVE_FUSE_DIRECTORY_TTL", 5.0)
+STARTUP_TIMEOUT = max(0.1, seconds_setting("OMARCHY_DRIVE_FUSE_STARTUP_TIMEOUT", 30.0))
+MUTATION_TIMEOUT = max(0.1, seconds_setting("OMARCHY_DRIVE_FUSE_MUTATION_TIMEOUT", 30.0))
 
 class Rpc:
-    def __init__(self, path: str): self.path, self.seq = path, 0
+    def __init__(self, path: str): self.client = RpcClient(path)
     def call(self, method: str, **params):
-        self.seq += 1
-        request = (json.dumps({"id": self.seq, "method": method, "params": params}) + "\n").encode()
-        with socket.socket(socket.AF_UNIX) as conn:
-            conn.settimeout(5 * 60)
-            conn.connect(self.path); conn.sendall(request); data = b""
-            while b"\n" not in data: data += conn.recv(65536)
-        response = json.loads(data.split(b"\n", 1)[0])
-        if "error" in response: raise RuntimeError(response["error"]["message"])
-        return response["result"]
+        return self.client.call(method, **params)
 
 class Operations(pyfuse3.Operations):
     enable_writeback_cache = False
@@ -63,6 +60,15 @@ class Operations(pyfuse3.Operations):
         return list(cached["nodes"])
     def remember_directory(self, parent_id, nodes):
         self.directory_cache[parent_id] = {"expires": time.monotonic() + DIRECTORY_TTL, "nodes": list(nodes)}
+    def update_node_metadata(self, node_id, size, modified_at):
+        collections = [self.inode_to_node.values()]
+        collections.extend(cached["nodes"] for cached in self.directory_cache.values())
+        collections.extend(directory["nodes"] for directory in self.directory_handles.values())
+        for nodes in collections:
+            for node in nodes:
+                if node["id"] == node_id:
+                    node["size"] = size
+                    node["modifiedAt"] = modified_at
     def attrs(self, node, inode=None):
         a = pyfuse3.EntryAttributes(); a.st_ino = inode or self.inode(node); a.st_mode = (stat.S_IFDIR | 0o700) if node["kind"] == "folder" else (stat.S_IFREG | 0o600)
         a.st_nlink = 2 if node["kind"] == "folder" else 1; a.st_uid = os.getuid(); a.st_gid = os.getgid(); a.st_size = node.get("size", 0)
@@ -140,27 +146,31 @@ class Operations(pyfuse3.Operations):
         handle = self.handles.pop(fh, None)
         if not handle: raise pyfuse3.FUSEError(errno.EBADF)
         fd, node_id, dirty = handle
+        local_size = local_modified_at = None
         try:
             if dirty:
                 os.fsync(fd)
                 local_stat = os.fstat(fd)
-                node = next((item for item in self.inode_to_node.values() if item["id"] == node_id), None)
-                if node:
-                    node["size"] = local_stat.st_size
-                    node["modifiedAt"] = int(local_stat.st_mtime * 1000)
+                local_size = local_stat.st_size
+                local_modified_at = int(local_stat.st_mtime * 1000)
+                self.update_node_metadata(node_id, local_size, local_modified_at)
         finally:
             os.close(fd)
             if dirty: self.writers.discard(node_id)
         if dirty:
             node = next((item for item in self.inode_to_node.values() if item["id"] == node_id), None)
             if node: node["localStatus"] = "queued"
+            try: await self.call("CommitWrite", nodeId=node_id)
+            except RuntimeError as exc: raise pyfuse3.FUSEError(errno.EIO) from exc
+            # A concurrent directory read can briefly replace the in-memory
+            # node with pre-commit provider metadata. Re-apply the local size
+            # after CommitWrite has persisted it, then invalidate kernel attrs.
+            self.update_node_metadata(node_id, local_size, local_modified_at)
             inode = self.node_to_inode.get(node_id)
             if inode is not None:
                 try: await trio.to_thread.run_sync(lambda: pyfuse3.invalidate_inode(inode, False))
                 except OSError as exc:
                     if exc.errno != errno.ENOSYS: raise
-            try: await self.call("CommitWrite", nodeId=node_id)
-            except RuntimeError as exc: raise pyfuse3.FUSEError(errno.EIO) from exc
     async def mkdir(self, parent_inode, name, mode, ctx):
         if self.read_only: raise pyfuse3.FUSEError(errno.EROFS)
         if self.is_local_trash(parent_inode, name): raise pyfuse3.FUSEError(errno.EOPNOTSUPP)
@@ -180,13 +190,48 @@ class Operations(pyfuse3.Operations):
     async def rmdir(self, parent_inode, name, ctx):
         if self.read_only: raise pyfuse3.FUSEError(errno.EROFS)
         await self.unlink(parent_inode, name, ctx)
+    async def symlink(self, parent_inode, name, target, ctx):
+        raise pyfuse3.FUSEError(errno.EOPNOTSUPP)
+    async def readlink(self, inode, ctx):
+        raise pyfuse3.FUSEError(errno.EOPNOTSUPP)
+    async def link(self, inode, new_parent_inode, new_name, ctx):
+        raise pyfuse3.FUSEError(errno.EOPNOTSUPP)
+    async def wait_for_safe_mutation(self, node_id):
+        deadline = time.monotonic() + MUTATION_TIMEOUT
+        while True:
+            state = await self.call("GetNodeStatus", nodeId=node_id) or {}
+            status = state.get("status")
+            if status not in {"queued", "uploading"}: return
+            if time.monotonic() >= deadline: raise pyfuse3.FUSEError(errno.EBUSY)
+            await trio.sleep(0.05)
     async def rename(self, parent_inode_old, name_old, parent_inode_new, name_new, flags, ctx):
         if self.read_only: raise pyfuse3.FUSEError(errno.EROFS)
-        if flags: raise pyfuse3.FUSEError(errno.EINVAL)
+        if flags & pyfuse3.RENAME_EXCHANGE or flags & ~pyfuse3.RENAME_NOREPLACE: raise pyfuse3.FUSEError(errno.EOPNOTSUPP)
         entry=await self.lookup(parent_inode_old, name_old, ctx); node=self.inode_to_node[entry.st_ino]; new_parent=self.inode_to_node[parent_inode_new]
         old_name=node["name"]
-        if node["parentId"] != new_parent["id"]: node=await self.call("Move", nodeId=node["id"], parentId=new_parent["id"])
-        if node["name"] != os.fsdecode(name_new): node=await self.call("Rename", nodeId=node["id"], name=os.fsdecode(name_new))
+        new_name=os.fsdecode(name_new)
+        await self.wait_for_safe_mutation(node["id"])
+        destination=None
+        try:
+            destination_entry=await self.lookup(parent_inode_new, name_new, ctx)
+            destination=self.inode_to_node[destination_entry.st_ino]
+        except pyfuse3.FUSEError as error:
+            if error.errno != errno.ENOENT: raise
+        if destination and destination["id"] == node["id"]: return
+        if destination and flags & pyfuse3.RENAME_NOREPLACE: raise pyfuse3.FUSEError(errno.EEXIST)
+        try:
+            if destination:
+                destination_id=destination["id"]
+                node=await self.call("Replace", nodeId=node["id"], destinationId=destination_id)
+                destination_inode=self.node_to_inode.pop(destination_id, None)
+                if destination_inode is not None: self.inode_to_node.pop(destination_inode, None)
+                self.update_directory_snapshots(parent_inode_new, removed_name=new_name)
+            else:
+                if node["parentId"] != new_parent["id"]: node=await self.call("Move", nodeId=node["id"], parentId=new_parent["id"])
+                if node["name"] != new_name: node=await self.call("Rename", nodeId=node["id"], name=new_name)
+        except RuntimeError as error:
+            message=str(error).lower()
+            raise pyfuse3.FUSEError(errno.EBUSY if "local content" in message or "upload" in message else errno.EIO) from error
         self.inode_to_node[entry.st_ino]=node
         self.update_directory_snapshots(parent_inode_old, removed_name=old_name)
         self.update_directory_snapshots(parent_inode_new, added_node=node)
@@ -213,6 +258,15 @@ class Operations(pyfuse3.Operations):
 
 async def main():
     parser=argparse.ArgumentParser(); parser.add_argument("mountpoint"); parser.add_argument("--socket", required=True); args=parser.parse_args()
+    deadline = time.monotonic() + STARTUP_TIMEOUT
+    startup_client = RpcClient(args.socket, timeout=min(1.0, STARTUP_TIMEOUT))
+    while True:
+        try:
+            await trio.to_thread.run_sync(lambda: startup_client.call("GetVersion"))
+            break
+        except (OSError, RpcError):
+            if time.monotonic() >= deadline: raise RuntimeError("Timed out waiting for the Proton Drive daemon")
+            await trio.sleep(0.1)
     Path(args.mountpoint).mkdir(parents=True, exist_ok=True); pyfuse3.init(Operations(Rpc(args.socket)), args.mountpoint, {"fsname=omarchy-drive", "subtype=omarchy-drive", "default_permissions", "x-gvfs-hide"})
     try: await pyfuse3.main()
     finally: pyfuse3.close(unmount=True)

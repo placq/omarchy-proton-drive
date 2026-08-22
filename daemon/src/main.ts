@@ -6,14 +6,15 @@ import { LocalStorage } from "./local-storage.ts";
 import { DriveEngine } from "./engine.ts";
 import { RpcServer } from "./rpc-server.ts";
 import { OfficialCliProvider } from "./official-cli-provider.ts";
+import { clampedIntegerSetting } from "./settings.ts";
 
 const dataHome = process.env.XDG_STATE_HOME ?? join(homedir(), ".local/state");
 const cacheHome = process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache");
 const runtimeDir = process.env.XDG_RUNTIME_DIR ?? `/tmp/omarchy-drive-${process.getuid?.() ?? "user"}`;
 const providerName = process.env.OMARCHY_DRIVE_PROVIDER ?? "unconfigured";
 const defaultMaintenanceMs = providerName === "proton-cli" ? 5 * 60_000 : 60_000;
-const maintenanceIntervalMs = Math.max(1_000, Number(process.env.OMARCHY_DRIVE_MAINTENANCE_MS ?? defaultMaintenanceMs));
-const maxCacheBytes = Math.max(0, Number(process.env.OMARCHY_DRIVE_CACHE_BYTES ?? 20 * 1024 ** 3));
+const maintenanceIntervalMs = clampedIntegerSetting("OMARCHY_DRIVE_MAINTENANCE_MS", defaultMaintenanceMs, 1_000);
+const maxCacheBytes = clampedIntegerSetting("OMARCHY_DRIVE_CACHE_BYTES", 20 * 1024 ** 3, 0);
 
 if (!["fake", "proton-cli"].includes(providerName)) {
   console.error("Set OMARCHY_DRIVE_PROVIDER=fake or proton-cli.");

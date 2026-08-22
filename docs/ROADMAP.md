@@ -9,13 +9,13 @@ This roadmap records the path from the original read-only preview to the current
 - Browser login, OS-secret session storage, account identity, storage quota, real browsing and on-demand downloads work through a CLI built from pinned official Proton source.
 - Real accounts support guarded writes through the official CLI; FUSE mutations use persistent staging and the engine's revision check before the CLI's `create-new-revision` upload strategy.
 - The technical FUSE mount is hidden from Nautilus while one persistent **Proton Drive** sidebar bookmark remains.
-- Automated baseline: 61 tests, a live isolated session D-Bus test, TypeScript typecheck, Python/shell syntax checks, plugin validation, dependency audit and installed-system diagnostics pass.
+- Automated baseline: 72 provider/core tests, 12 Python unit tests, a live isolated session D-Bus test, TypeScript typecheck, Python/shell syntax checks, plugin validation and dependency audit pass; the last installed-system diagnostics are recorded in TEST-STATUS.md.
 
 ## Milestone status
 
 - Phases 1–4 are implemented for the selected official-CLI architecture. SQLite migration, private WAL, bounded operations, recursive pinning and explicit conflict resolution are complete.
 - Phase 5 automated, read-only, reboot and core disposable real-account write/conflict paths pass. Offline-reboot-reconnect and manual revoked-session scenarios remain publication gates.
-- Phase 6 has a local Arch package, prebuilt/atomically replaced CLI, a deterministic release archive/checksum generator, compatibility checks and safe uninstall; publishing the generated artifacts and clean-machine update/failure testing remain release work.
+- Phase 6 has a local Arch package, prebuilt/atomically replaced CLI, a deterministic release archive/checksum generator, compatibility checks, safe uninstall and a checksummed clean-machine evidence runner; executing it against the published artifact remains release work.
 
 ## Phase 1 — Quattro system validation with the fake provider
 
@@ -69,7 +69,7 @@ Goal: address system-test findings and make the provider-independent layer robus
 - [x] Replace JSON metadata/state persistence with an application-owned SQLite schema and atomic legacy migration; staging content remains ordinary private files.
 - [x] Recover interrupted upload/download, missing staging and corrupt state without silently resetting or discarding local data.
 - [x] Add bounded timeouts for RPC, D-Bus and provider operations.
-- Verify long names, invalid UTF-8 boundaries exposed by FUSE, Unicode normalisation and symlink rejection.
+- [x] Verify long names, invalid UTF-8 boundaries exposed by FUSE, Unicode normalisation and explicit symlink/hard-link rejection.
 - [x] Add recursive folder pinning; transfers expose download progress through the existing event stream.
 - [x] Add explicit conflict-resolution operations while preserving the current never-overwrite default.
 - [x] Make D-Bus the stable desktop API and document its versioned contract; retain the private Unix protocol as an internal transport only.
@@ -150,9 +150,9 @@ Goal: replace the source-checkout installer with a repeatable end-user installat
 - Reinstall/update preserves all safety-critical state.
 - The release archive and Arch package are reproducible and their provenance is documented.
 
-## Phase 7 — Alpha release and marketplace submission
+## Phase 7 — 1.0 release and marketplace submission
 
-Goal: publish an honest, supportable alpha after all safety gates pass.
+Goal: publish an honest, supportable `1.0.0` release after all safety gates pass.
 
 - Run `omarchy plugin validate` against the release commit.
 - Prepare marketplace description and optional preview without Proton trademarks or official visual assets.
@@ -165,10 +165,11 @@ Goal: publish an honest, supportable alpha after all safety gates pass.
 | Target | Scope | Gate |
 |---|---|---|
 | `0.1.0-alpha.2` | Quattro fake-provider validation fixes | Phases 1–2 |
-| `0.3.0-alpha.2` | Nautilus/FUSE performance and real-account read/write integration | Current checkpoint; offline/revoked-session and published-package gates pending |
-| Marketplace alpha | Public discoverability | Phase 7 |
+| `0.3.0-alpha.2` | Nautilus/FUSE performance and real-account read/write integration | Completed implementation checkpoint |
+| `1.0.0` | First stable package and marketplace-ready metadata | Release candidate; offline/revoked-session and published-package gates pending |
+| Marketplace listing | Public discoverability with manual-installation note | Phase 7 |
 
-## Deferred until after the first marketplace alpha
+## Deferred until after the first marketplace release
 
 - Multi-account support
 - Photos-specific views

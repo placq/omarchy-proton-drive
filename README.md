@@ -1,16 +1,68 @@
 # Proton Drive for Omarchy
 
-Proton Drive for Omarchy is an experimental, unofficial third-party integration for Proton Drive on Omarchy Quattro. It is not affiliated with or supported by Proton AG.
+Proton Drive for Omarchy is an unofficial third-party integration for Proton Drive on Omarchy Quattro. It is not affiliated with, supported by or endorsed by Proton AG or the Omarchy project.
 
-> **Current status: developer alpha.** Real-account browser login, browsing, downloads and guarded writes work through Proton's official CLI and OS Secret Service. Edits are checked against the observed remote revision before upload; conflicts preserve the local copy and do not intentionally replace newer remote content.
+> **Current status: 1.0.0 release candidate.** The checksummed release runner, installation and post-install verification have been completed on a clean Omarchy machine. Final marketplace publication still depends on the remaining real-account recovery evidence and maintainer review; do not use an unpublished build with important Proton Drive data.
 
-## Normal user
+## Requirements
 
-The intended product flow is deliberately centered on one compact Omarchy bar widget. After installation, the Proton icon appears in the right-hand system area, next to Agents and before Bluetooth.
+- Omarchy Quattro on Arch Linux;
+- a dedicated Proton account for pre-release testing;
+- Git, Bun and `makepkg` for source installation;
+- the runtime dependencies declared by the Arch package: FUSE3, GNOME Desktop 4, libsecret, Nautilus and nautilus-python, python-dbus-next, python-pyfuse3 and python-trio.
+
+The installer builds the authentication boundary from a pinned commit of Proton's official Drive CLI source. Exact source references and package versions are documented in [Dependencies](docs/DEPENDENCIES.md). Proton credentials are entered only in Proton's browser flow and are stored by the operating-system Secret Service.
+
+## Install
+
+This integration needs a native daemon, FUSE adapter, D-Bus bridge, Nautilus extension and user services. The standard `omarchy plugin add` command installs only the QML frontend and is therefore **not** a complete installation path. The marketplace listing must use its manual-installation mode.
+
+Review the source, then run the installer from a visible terminal so `makepkg` can request administrator authentication:
+
+```bash
+git clone https://github.com/placq/omarchy-proton-drive.git
+cd omarchy-proton-drive
+./scripts/install.sh
+```
+
+The installer shows its scope before making changes. It builds the pinned official CLI in a temporary directory, installs the `omarchy-drive` Arch package, copies the user-owned shell plugin to `~/.config/omarchy/plugins/placq.proton-drive`, adds one Nautilus bookmark and enables three systemd user services. Verify the result with:
+
+```bash
+./scripts/doctor.sh
+```
+
+## Update
+
+Update only from a reviewed release or commit, then rerun the same installer:
+
+```bash
+git pull --ff-only
+./scripts/install.sh
+./scripts/doctor.sh
+```
+
+The installer preserves the private SQLite state, persistent staging and conflict copies.
+
+## Remove
+
+Run the guarded uninstaller from the repository checkout:
+
+```bash
+./scripts/uninstall.sh
+sudo pacman -Rns omarchy-drive
+```
+
+The uninstaller refuses to continue while unsynchronised or conflicted local bytes remain recoverable. It disables the services and removes the shell plugin and sidebar bookmark, but preserves persistent state/staging and never deletes remote Proton Drive data. To remove only disposable cache after the safety check, use `./scripts/uninstall.sh --remove-cache`.
+
+Do not use only `omarchy plugin remove placq.proton-drive`: that removes the QML frontend but leaves the native integration installed.
+
+## Usage
+
+The product flow is centered on one compact Omarchy bar widget. After installation, the Proton icon appears in the right-hand system area, next to Agents and before Bluetooth.
 
 Clicking the widget opens the Proton Drive status card. There is no separate Omarchy menu entry, application-launcher entry or extra keyboard shortcut for routine access.
 
-The current first-run flow is:
+The first-run flow is:
 
 1. Install the plugin and native integration.
 2. Click the Proton icon on the right side of the bar.
@@ -29,9 +81,9 @@ The widget uses these status indicators:
 
 The status card shows account identity, remote storage usage, connection state, transfers and safe local-cache controls. Proton Drive remains available as a single Nautilus sidebar bookmark. Real cloud files can be browsed, opened, created, edited, moved, renamed and trashed. Offline edits remain staged locally and are retried after reconnect; a changed remote revision creates a preserved local conflict copy.
 
-## Developer preview
+## Development
 
-On Omarchy Quattro, use `--fake` for the fully writable development fixture:
+On an Omarchy Quattro test machine or VM, use `--fake` for the fully writable development fixture:
 
 ```bash
 ./scripts/dev-setup.sh
@@ -43,15 +95,18 @@ This installs the native package, enables the fake provider, starts the user ser
 Developer commands:
 
 ```bash
-npm install
+npm ci --ignore-scripts
 npm test
 npm run check
+npm run validate
 OMARCHY_DRIVE_PROVIDER=fake npm run start:fake
 ```
 
-See [architecture](docs/ARCHITECTURE.md), [D-Bus API](docs/DBUS-API.md), [development roadmap](docs/ROADMAP.md), [security model](docs/SECURITY.md), [test status](docs/TEST-STATUS.md), [dependencies](docs/DEPENDENCIES.md), and [next work](NEXT.md).
+See [architecture](docs/ARCHITECTURE.md), [D-Bus API](docs/DBUS-API.md), [development roadmap](docs/ROADMAP.md), [security model](docs/SECURITY.md), [test status](docs/TEST-STATUS.md), [dependencies](docs/DEPENDENCIES.md), [marketplace preparation](docs/MARKETPLACE.md), and [next work](NEXT.md).
 
-## What the alpha implements
+The guarded release-gate runners are `scripts/real_account_recovery.py` for the dedicated Proton account and `scripts/clean-machine-acceptance.sh` for a checksummed artifact on a clean Quattro machine. Their presence is not itself a passed release gate; acceptance requires the target-machine evidence described in `docs/INSTALLATION-TEST.md`.
+
+## What 1.0 implements
 
 - direct `@protontech/drive-sdk` dependency behind the future `ProtonSdkProvider` integration seam;
 - real-account provider using Proton's official browser-authenticated CLI as the session and cryptography boundary;
@@ -72,3 +127,7 @@ See [architecture](docs/ARCHITECTURE.md), [D-Bus API](docs/DBUS-API.md), [develo
 ## Data safety
 
 `Free local space`, rename, move, trash and uninstall refuse unsafe operations while a node or folder descendant has recoverable staged data. Proton credentials and raw CLI output never enter project state or logs; the official CLI stores its session in the operating-system secret service. Cache lives under `$XDG_CACHE_HOME`; staging and conflict copies live under `$XDG_STATE_HOME` with private permissions.
+
+## License
+
+[MIT](LICENSE). Proton and Proton Drive are trademarks of Proton AG; they are referenced only to describe interoperability. The generated marketplace preview is an original generic illustration and contains no Proton or Omarchy marks.

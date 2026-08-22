@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.0
+
+- Promote the synchronized daemon, CLI, package and Quattro manifest version to the first stable semantic version.
+- Document the complete native install, update and guarded removal flows required by the Omarchy Plugins marketplace.
+- Add marketplace submission metadata, manual-installation guidance and an original trademark-free preview asset.
+- Carry forward the data-safety, recovery, IPC, desktop integration and performance hardening completed in the `0.3.0-alpha.2` cycle.
+
 ## 0.3.0-alpha.2
 
 - Drop the rotating text-glyph spinner from the cache-clear buttons; the glyph is absent from the bar font and orbited instead of spinning, so the running state is shown by the status line below.
@@ -10,6 +17,23 @@
 - Remove the artificial 2.5 s delay after cache clearing; the completion message appears as soon as the process exits.
 - Make the D-Bus conflict surface live: `ConflictResolved` signal added, `Conflict`/`ConflictResolved` events forwarded, and the QML popup scrolls instead of clipping long conflict/transfer lists.
 - Replace silent failure swallowing with structured logs (daemon background refreshes, D-Bus reconnects, Nautilus actions) and unify widget language handling; the QML version fallback is now covered by validation.
+- Coalesce transfer progress updates to 100 ms while emitting terminal states immediately, bound retained transfer history, and make official CLI timeout/output limits configurable with safe defaults.
+- Share one bounded RPC client across FUSE, D-Bus, Nautilus, control and smoke tooling; reject truncated responses instead of spinning on a closed socket.
+- Cover hostile FUSE names, NFC normalisation and explicit link rejection; keep post-write size metadata coherent when a concurrent listing races file release.
+- Wait for daemon readiness during FUSE startup and suppress expected initial D-Bus reconnect noise so normal login does not restart the mount or pollute the journal.
+- Add an isolated regression test proving uninstall refuses dirty staging without deleting its only local bytes.
+- Replay pending SQLite changes after a failed transaction so transient storage errors cannot silently drop recovery metadata.
+- Catch background commit setup failures without an unhandled rejection; keep exact staging bytes queued and retryable.
+- Validate RPC envelope types and return bounded errors for malformed values instead of risking an unhandled server rejection.
+- Keep conflict-copy filenames below `NAME_MAX` with UTF-8-safe truncation, hashes and unique suffixes, including for 255-byte remote names.
+- Preserve staged bytes when a file or containing tree is deleted remotely; recreate deleted parent folders for keep-local/save-both recovery and prune the retained tree only after explicit keep-remote acceptance.
+- Replace staging files atomically after a fully synced temporary copy so a failed large copy cannot truncate the previous recoverable version.
+- Support desktop-style atomic file replacement through FUSE, waiting for the temporary upload, retaining a provider-side rollback copy until replacement succeeds and restoring cross-folder sources after a partial failure.
+- Declare `libsecret` as a runtime dependency and fail installer preflight early when Git, Bun or makepkg is unavailable.
+- Stage the Arch package during local validation and verify runtime entry points while excluding test and bytecode files.
+- Recover the upload crash window where Proton committed a revision before SQLite recorded it: compare streamed remote bytes with persistent staging, accept only an exact match, and retain divergent bytes as a conflict.
+- Finalise successful uploads in two durable phases so a local database or cleanup failure never removes the only recovery evidence prematurely.
+- Add guarded, stateful 1.0 acceptance harnesses for offline-reboot recovery, killed uploads/downloads, real rate-limit recovery, revoked sessions, journal redaction and checksummed clean-machine reinstall evidence.
 
 - Reuse fresh folder metadata before downloads and recursive pinning, cache repeated FUSE directory access, and suppress duplicate Nautilus thumbnail bookkeeping.
 - Reuse prepared SQLite statements and remove repeated permission syscalls from the transaction hot path while retaining private database/WAL modes.

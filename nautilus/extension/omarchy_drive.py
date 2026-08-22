@@ -1,6 +1,10 @@
 from __future__ import annotations
-import hashlib, json, os, socket, stat, sys, threading
+import hashlib, os, stat, sys, threading
 from pathlib import Path
+source_root = Path(__file__).resolve().parents[2]
+library_root = source_root if (source_root / "ipc/rpc_client.py").is_file() else Path("/usr/lib/omarchy-drive")
+sys.path.insert(0, str(library_root))
+from ipc.rpc_client import RpcClient
 import gi
 gi.require_version("GnomeDesktop", "4.0")
 gi.require_version("Nautilus", "4.1")
@@ -9,6 +13,7 @@ from drive_logic import ThumbnailWorkCache, drive_path, node_id, node_status, th
 
 MOUNT = Path(os.environ.get("OMARCHY_DRIVE_MOUNT", str(Path.home()/".local/share/omarchy-drive/mount"))).resolve()
 SOCKET = os.environ.get("OMARCHY_DRIVE_SOCKET", f"{os.environ.get('XDG_RUNTIME_DIR', '/tmp')}/omarchy-drive.sock")
+RPC_CLIENT = RpcClient(SOCKET, timeout=.25)
 EMBLEMS = {"cached":"emblem-default", "pinned":"emblem-favorite", "downloading":"emblem-synchronizing", "uploading":"emblem-synchronizing", "dirty":"emblem-synchronizing", "queued":"emblem-synchronizing", "conflict":"emblem-important", "error":"emblem-important"}
 THUMBNAILS = GnomeDesktop.DesktopThumbnailFactory.new(GnomeDesktop.DesktopThumbnailSize.NORMAL)
 THUMBNAIL_WORK = ThumbnailWorkCache()
@@ -40,12 +45,7 @@ def suppress_automatic_thumbnail(uri, path, status, mime_type):
         raise
 
 def rpc(method, **params):
-    with socket.socket(socket.AF_UNIX) as conn:
-        conn.settimeout(.25); conn.connect(SOCKET); conn.sendall((json.dumps({"id":1,"method":method,"params":params})+"\n").encode()); data=b""
-        while b"\n" not in data: data += conn.recv(65536)
-    response=json.loads(data.split(b"\n",1)[0]);
-    if "error" in response: raise RuntimeError(response["error"]["message"])
-    return response["result"]
+    return RPC_CLIENT.call(method, **params)
 
 def run_actions(method, selected, extra):
     for node in selected:
