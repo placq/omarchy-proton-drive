@@ -1,8 +1,27 @@
 # Proton Drive for Omarchy
 
+> A native Proton Drive experience for Omarchy Quattro — available from the bar, browsable in Nautilus and designed to keep offline work safe.
+
 Proton Drive for Omarchy is an unofficial third-party integration for Proton Drive on Omarchy Quattro. It is not affiliated with, supported by or endorsed by Proton AG or the Omarchy project.
 
 > **Current status: unreleased 1.0.1 maintenance candidate.** The checksummed 1.0.0 release passed clean-machine installation; these newer safety fixes still require the release acceptance and remaining real-account recovery gates. Do not use an unpublished build with important Proton Drive data.
+
+## See it in action
+
+The Proton icon keeps account state and transfer activity one click away. Your cloud files then appear as a regular Proton Drive location in Nautilus.
+
+<p align="center">
+  <img src="screenshots/screen1.png" alt="Proton Drive status card in the Omarchy bar" width="290">
+  &nbsp;&nbsp;&nbsp;
+  <img src="screenshots/screen2.png" alt="Proton Drive mounted in Nautilus" width="650">
+</p>
+
+### Highlights
+
+- **Native Omarchy workflow** — a compact, theme-aware bar widget with no extra launcher or menu entry.
+- **Familiar files experience** — browse, open, create, edit, move, rename and trash files from Nautilus.
+- **Offline-safe changes** — queued writes, revision checks and preserved conflict copies protect local work.
+- **Privacy by design** — authentication stays in Proton’s browser flow and credentials remain in the system Secret Service.
 
 ## Requirements
 
@@ -80,14 +99,6 @@ The widget uses these status indicators:
 | Proton icon with a status dot | Transfer or synchronization is active |
 
 The status card shows account identity, remote storage usage, connection state, transfers and safe local-cache controls. Proton Drive remains available as a single Nautilus sidebar bookmark. Real cloud files can be browsed, opened, created, edited, moved, renamed and trashed. Offline edits remain staged locally and are retried after reconnect; a changed remote revision creates a preserved local conflict copy.
-
-## Screenshots
-
-The compact bar widget and status card are shown below.
-
-![Proton Drive status card](screenshots/screen1.png)
-
-![Proton Drive in Nautilus](screenshots/screen2.png)
 
 ## Development
 
