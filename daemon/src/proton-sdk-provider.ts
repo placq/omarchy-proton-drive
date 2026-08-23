@@ -4,7 +4,7 @@ import { createReadStream, createWriteStream } from "node:fs";
 import { Readable, Writable } from "node:stream";
 
 type StreamWritable = WritableStream<Uint8Array>;
-export const PROTON_APP_VERSION = "external-drive-omarchy_drive@1.0.1";
+export const PROTON_APP_VERSION = "external-drive-omarchy_drive@1.0.2";
 type SdkNode = Record<string, unknown>;
 interface SdkController { completion(): Promise<Record<string, unknown>>; }
 interface SdkDriveEvent { type: string; eventId: string; nodeUid?: string; isTrashed?: boolean; }

@@ -1,12 +1,14 @@
 # Changelog
 
-## 1.0.1 (unreleased)
+## 1.0.2 (unreleased)
 
 - Separate cached-content revisions from current remote metadata and invalidate stale or unverifiable cache bytes before they can become an upload base.
 - Refuse non-empty FUSE `rmdir`, remove local cache on Proton trash, and prune orphaned cache downloads at startup.
 - Refresh the official CLI revision guard immediately before upload and cancel cooperative remote mutations when the RPC deadline or client connection ends.
 - Serialize login/logout against all integration CLI users, make the mount path XDG-consistent, redact Nautilus failure details, and harden the FUSE service.
 - Audit the complete npm dependency tree instead of excluding the build and test toolchain.
+- Render every QML text sink as plain text and bound daemon responses before they reach Quickshell, including per-message and per-watch-process ceilings.
+- Keep the FUSE service in the user's mount namespace so its Nautilus mount is visible and permitted.
 
 ## 1.0.0
 

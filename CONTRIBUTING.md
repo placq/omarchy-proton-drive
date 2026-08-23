@@ -1,6 +1,6 @@
 # Contributing
 
-This is an unofficial `1.0.1` maintenance candidate. Do not test unpublished builds with important Proton Drive data.
+This is an unofficial `1.0.2` maintenance candidate. Do not test unpublished builds with important Proton Drive data.
 
 ## Local checks
 

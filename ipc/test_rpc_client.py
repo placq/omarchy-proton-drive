@@ -36,6 +36,33 @@ class RpcClientTest(unittest.TestCase):
             thread.join(1)
             self.assertFalse(thread.is_alive())
 
+    def test_oversized_response_is_rejected_before_unbounded_collection(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = str(Path(directory) / "rpc.sock")
+            ready = threading.Event()
+
+            def server():
+                with socket.socket(socket.AF_UNIX) as listener:
+                    listener.bind(path)
+                    listener.listen(1)
+                    ready.set()
+                    connection, _ = listener.accept()
+                    with connection:
+                        connection.recv(65536)
+                        connection.sendall(b"x" * 17)
+
+            thread = threading.Thread(target=server)
+            thread.start()
+            self.assertTrue(ready.wait(1))
+            with self.assertRaisesRegex(RpcError, "byte limit"):
+                RpcClient(path, timeout=1, max_response_bytes=16).call("GetStatus")
+            thread.join(1)
+            self.assertFalse(thread.is_alive())
+
+    def test_response_limit_must_be_positive(self):
+        with self.assertRaisesRegex(ValueError, "positive"):
+            RpcClient("/unused", max_response_bytes=0)
+
 
 if __name__ == "__main__":
     unittest.main()

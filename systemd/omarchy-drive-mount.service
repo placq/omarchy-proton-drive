@@ -15,7 +15,8 @@ ExecStart=/usr/lib/omarchy-drive/filesystem/fuse/omarchy-drive-fuse.py ${OMARCHY
 ExecStop=-/usr/bin/fusermount3 -uzq ${OMARCHY_DRIVE_MOUNT}
 Restart=on-failure
 RestartSec=5
-PrivateTmp=yes
+# FUSE must publish this mount in the user's host mount namespace.
+PrivateTmp=no
 
 [Install]
 WantedBy=default.target

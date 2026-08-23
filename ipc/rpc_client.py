@@ -7,6 +7,9 @@ import os
 import socket
 
 
+DEFAULT_MAX_RESPONSE_BYTES = 8 * 1024 * 1024
+
+
 class RpcError(RuntimeError):
     """A transport, protocol, or daemon RPC failure."""
 
@@ -21,9 +24,17 @@ def timeout_setting(environment=os.environ) -> float:
 
 
 class RpcClient:
-    def __init__(self, path: str, timeout: float | None = None):
+    def __init__(
+        self,
+        path: str,
+        timeout: float | None = None,
+        max_response_bytes: int = DEFAULT_MAX_RESPONSE_BYTES,
+    ):
+        if max_response_bytes <= 0:
+            raise ValueError("max_response_bytes must be positive")
         self.path = path
         self.timeout = timeout_setting() if timeout is None else timeout
+        self.max_response_bytes = max_response_bytes
         self.sequence = 0
 
     def call(self, method: str, **params):
@@ -33,14 +44,26 @@ class RpcClient:
             connection.settimeout(self.timeout)
             connection.connect(self.path)
             connection.sendall(request)
-            data = b""
-            while b"\n" not in data:
-                part = connection.recv(65536)
+            data = bytearray()
+            while True:
+                # Read at most one byte beyond the ceiling so an unterminated or
+                # oversized daemon response is rejected without an unbounded
+                # client-side allocation.
+                remaining = self.max_response_bytes + 1 - len(data)
+                part = connection.recv(min(65536, remaining))
                 if not part:
                     raise RpcError("Proton Drive daemon closed the RPC connection without a response")
-                data += part
+                data.extend(part)
+                newline = data.find(b"\n")
+                if newline >= 0:
+                    if newline > self.max_response_bytes:
+                        raise RpcError("Proton Drive daemon RPC response exceeds the byte limit")
+                    response_data = bytes(data[:newline])
+                    break
+                if len(data) > self.max_response_bytes:
+                    raise RpcError("Proton Drive daemon RPC response exceeds the byte limit")
         try:
-            response = json.loads(data.split(b"\n", 1)[0])
+            response = json.loads(response_data)
         except (UnicodeDecodeError, json.JSONDecodeError) as error:
             raise RpcError("Proton Drive daemon returned an invalid RPC response") from error
         if not isinstance(response, dict):

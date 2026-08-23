@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import Quickshell
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
@@ -214,7 +215,6 @@ BarWidget {
             PanelHero {
                 width: parent.width
                 title: "Proton Drive"
-                meta: root.driveService ? root.driveService.accountEmail : ""
                 foreground: Color.popups.text
                 fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
                 iconComponent: Component {
@@ -223,6 +223,19 @@ BarWidget {
                         color: Color.popups.text
                     }
                 }
+            }
+
+            Text {
+                visible: root.driveService && root.driveService.accountEmail !== ""
+                width: parent.width
+                text: root.driveService ? root.driveService.accountEmail.toUpperCase() : ""
+                textFormat: Text.PlainText
+                color: Qt.darker(Color.popups.text, 1.4)
+                font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                font.pixelSize: Style.font.caption
+                font.bold: true
+                font.letterSpacing: 1.2
+                elide: Text.ElideRight
             }
 
             PanelSeparator {
@@ -267,6 +280,7 @@ BarWidget {
 
                 Text {
                     text: root.l10n("Uruchamianie Proton Drive…", "Starting Proton Drive…")
+                    textFormat: Text.PlainText
                     color: Color.popups.text
                     font.pixelSize: Style.font.bodySmall
                     anchors.verticalCenter: parent.verticalCenter
@@ -284,6 +298,7 @@ BarWidget {
                             + root.l10n(" zajęte z ", " used of ")
                             + root.formatBytes(root.driveService.totalBytes)
                         : ""
+                    textFormat: Text.PlainText
                     color: Color.popups.text
                     font.pixelSize: Style.font.bodySmall
                 }
@@ -310,6 +325,7 @@ BarWidget {
 
                 Text {
                     text: root.l10n("Połączono", "Connected")
+                    textFormat: Text.PlainText
                     color: Color.popups.text
                     font.pixelSize: Style.font.bodySmall
                     font.bold: true
@@ -324,6 +340,7 @@ BarWidget {
 
                 Text {
                     text: root.l10n("Aktywne operacje", "Active transfers")
+                    textFormat: Text.PlainText
                     color: Color.popups.text
                     font.pixelSize: Style.font.bodySmall
                     font.bold: true
@@ -342,6 +359,7 @@ BarWidget {
                                 : modelData.direction === "trash"
                                     ? root.l10n("Usuwanie: ", "Moving to trash: ")
                                     : root.l10n("Pobieranie: ", "Downloading: ")) + modelData.name
+                            textFormat: Text.PlainText
                             color: Color.popups.text
                             font.pixelSize: Style.font.caption
                             elide: Text.ElideMiddle
@@ -373,7 +391,7 @@ Rectangle {
                         fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
                         fontSize: Style.font.caption
                         onClicked: {
-                            root.bar.run("omarchy-drive-control cancel-transfer " + modelData.id)
+                            Quickshell.execDetached(["omarchy-drive-control", "cancel-transfer", String(modelData.id)])
                             if (root.driveService) root.driveService.refreshSoon()
                         }
                     }
@@ -388,6 +406,7 @@ Rectangle {
 
             Text {
                 text: root.l10n("Konflikty", "Conflicts")
+                textFormat: Text.PlainText
                 color: Color.popups.text
                 font.pixelSize: Style.font.bodySmall
                 font.bold: true
@@ -402,6 +421,7 @@ Rectangle {
 
                     Text {
                         text: modelData.name
+                        textFormat: Text.PlainText
                         color: Color.popups.text
                         font.pixelSize: Style.font.caption
                         font.bold: true
@@ -412,6 +432,7 @@ Rectangle {
                     Text {
                         visible: modelData.error !== undefined && modelData.error !== ""
                         text: modelData.error || ""
+                        textFormat: Text.PlainText
                         color: Color.popups.text
                         opacity: 0.75
                         wrapMode: Text.Wrap
@@ -427,7 +448,7 @@ Rectangle {
                         fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
                         fontSize: Style.font.caption
                         onClicked: {
-                            root.bar.run("omarchy-drive-control conflict-keep-local " + modelData.nodeId)
+                            Quickshell.execDetached(["omarchy-drive-control", "conflict-keep-local", String(modelData.nodeId)])
                             if (root.driveService) root.driveService.refreshSoon()
                         }
                     }
@@ -440,7 +461,7 @@ Rectangle {
                         fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
                         fontSize: Style.font.caption
                         onClicked: {
-                            root.bar.run("omarchy-drive-control conflict-keep-remote " + modelData.nodeId)
+                            Quickshell.execDetached(["omarchy-drive-control", "conflict-keep-remote", String(modelData.nodeId)])
                             if (root.driveService) root.driveService.refreshSoon()
                         }
                     }
@@ -453,7 +474,7 @@ Rectangle {
                         fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
                         fontSize: Style.font.caption
                         onClicked: {
-                            root.bar.run("omarchy-drive-control conflict-save-both " + modelData.nodeId)
+                            Quickshell.execDetached(["omarchy-drive-control", "conflict-save-both", String(modelData.nodeId)])
                             if (root.driveService) root.driveService.refreshSoon()
                         }
                     }
@@ -468,6 +489,7 @@ Rectangle {
 
                 Text {
                     text: root.driveService ? root.driveService.lastError : ""
+                    textFormat: Text.PlainText
                     color: Color.popups.text
                     wrapMode: Text.Wrap
                     width: parent.width
@@ -495,6 +517,7 @@ Rectangle {
                 Text {
                     text: root.l10n("Zajęte miejsce lokalnie: ", "Local storage used: ")
                         + (root.driveService ? root.formatBytes(root.driveService.cacheBytes) : "0 B")
+                    textFormat: Text.PlainText
                     color: Color.popups.text
                     font.pixelSize: Style.font.caption
                     width: parent.width
@@ -550,6 +573,7 @@ Rectangle {
                     Text {
                         visible: root.cacheActionRunning
                         text: "↻"
+                        textFormat: Text.PlainText
                         color: Color.accent
                         font.pixelSize: Style.font.body
                         anchors.verticalCenter: parent.verticalCenter
@@ -568,6 +592,7 @@ Rectangle {
                                 ? root.l10n("Usuwamy lokalne pliki „Zawsze dostępne”…", "Removing local “Always available” files…")
                                 : root.l10n("Usuwamy pamięć podręczną…", "Clearing cache…"))
                             : root.cacheActionMessage
+                        textFormat: Text.PlainText
                         color: root.cacheActionRunning ? Color.accent : Color.popups.text
                         opacity: root.cacheActionRunning ? 1.0 : 0.75
                         font.pixelSize: Style.font.caption
@@ -609,6 +634,7 @@ Rectangle {
             Text {
                 visible: root.driveService && root.driveService.version !== ""
                 text: root.l10n("pokaż logi", "view logs")
+                textFormat: Text.PlainText
                 color: root.logsLinkColor
                 opacity: 1.0
                 font.pixelSize: Style.font.caption
@@ -629,6 +655,7 @@ Rectangle {
             Text {
                 visible: root.driveService && root.driveService.version !== ""
                 text: "Proton Drive for Omarchy " + (root.driveService ? root.driveService.version : "")
+                textFormat: Text.PlainText
                 color: Color.popups.text
                 opacity: 0.45
                 font.pixelSize: Style.font.caption
@@ -660,6 +687,7 @@ Rectangle {
                 anchors.centerIn: parent
                 width: parent.width - Style.space(16)
                 text: root.cacheTooltipText
+                textFormat: Text.PlainText
                 color: Color.tooltip.text
                 font.family: root.bar ? root.bar.fontFamily : Style.font.family
                 font.pixelSize: Style.font.bodySmall

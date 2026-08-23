@@ -9,7 +9,12 @@ from ipc.rpc_client import RpcClient
 
 SOCKET = os.environ.get("OMARCHY_DRIVE_SOCKET", f"{os.environ.get('XDG_RUNTIME_DIR', '/tmp')}/omarchy-drive.sock")
 DATA_HOME = Path(os.environ.get("XDG_DATA_HOME", str(Path.home()/".local/share")))
-RPC_CLIENT = RpcClient(SOCKET)
+# These ceilings are enforced while reading the daemon socket, before any
+# daemon-controlled bytes are written to Quickshell's stdout parsers.
+QML_MAX_MESSAGE_BYTES = 256 * 1024
+QML_MAX_ACCUMULATED_BYTES = 16 * 1024 * 1024
+SOCKET_READ_BYTES = 64 * 1024
+RPC_CLIENT = RpcClient(SOCKET, max_response_bytes=QML_MAX_MESSAGE_BYTES)
 AUTH_UNITS = ["omarchy-drive-mount.service", "omarchy-drive-dbus.service", "omarchy-drive.service"]
 
 def call(method, **params):
@@ -23,6 +28,46 @@ def authenticate(command, cli, runner=subprocess.run):
         runner([cli, "auth", command], check=True)
     finally:
         runner(["systemctl", "--user", "start", "omarchy-drive.service", "omarchy-drive-dbus.service", "omarchy-drive-mount.service"], check=False)
+
+def relay_bounded_watch(
+    connection,
+    output,
+    max_message_bytes=QML_MAX_MESSAGE_BYTES,
+    max_accumulated_bytes=QML_MAX_ACCUMULATED_BYTES,
+):
+    """Relay newline-framed daemon events to QML through strict byte ceilings."""
+    if max_message_bytes <= 0 or max_accumulated_bytes <= 0:
+        raise ValueError("watch byte limits must be positive")
+
+    pending = bytearray()
+    accumulated = 0
+    while True:
+        chunk = connection.recv(SOCKET_READ_BYTES)
+        if not chunk:
+            if pending:
+                raise RuntimeError("Proton Drive daemon closed an unterminated watch message")
+            return
+
+        accumulated += len(chunk)
+        if accumulated > max_accumulated_bytes:
+            raise RuntimeError("Proton Drive daemon watch stream exceeds the accumulated byte limit")
+        pending.extend(chunk)
+
+        while True:
+            newline = pending.find(b"\n")
+            if newline < 0:
+                if len(pending) > max_message_bytes:
+                    raise RuntimeError("Proton Drive daemon watch message exceeds the byte limit")
+                break
+            if newline > max_message_bytes:
+                raise RuntimeError("Proton Drive daemon watch message exceeds the byte limit")
+
+            message = bytes(pending[:newline])
+            del pending[:newline + 1]
+            if not message:
+                continue
+            output.write(message + b"\n")
+            output.flush()
 
 def main():
     p=argparse.ArgumentParser(); sub=p.add_subparsers(dest="command", required=True)
@@ -42,8 +87,8 @@ def main():
     if a.command == "watch":
         req=(json.dumps({"id":1,"method":"Watch","params":{}})+"\n").encode()
         with socket.socket(socket.AF_UNIX) as conn:
-            conn.connect(SOCKET); conn.sendall(req); stream=conn.makefile("r")
-            for line in stream: print(line, end="", flush=True)
+            conn.connect(SOCKET); conn.sendall(req)
+            relay_bounded_watch(conn, sys.stdout.buffer)
         return
     if a.command == "logs":
         log_dir=Path(os.environ.get("XDG_CACHE_HOME", str(Path.home()/".cache")))/"omarchy-drive"/"logs"

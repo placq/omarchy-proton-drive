@@ -4,7 +4,7 @@ set -euo pipefail
 # End-to-end release check for a clean Omarchy machine.
 # This script deliberately does not authenticate or run real-account tests.
 
-version=${OMARCHY_DRIVE_RELEASE_VERSION:-1.0.1}
+version=${OMARCHY_DRIVE_RELEASE_VERSION:-1.0.2}
 repo=${OMARCHY_DRIVE_RELEASE_REPO:-placq/omarchy-proton-drive}
 release_dir=${OMARCHY_DRIVE_RELEASE_DIR:-$PWD/omarchy-drive-${version}-release}
 tag="v${version}"

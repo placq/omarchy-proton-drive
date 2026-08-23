@@ -30,7 +30,7 @@ Item {
     // more information (conflict names/errors, authenticated state) than the
     // session D-Bus signal surface, which remains for external consumers.
     function applyStatus(data) {
-        const expectedVersion=root.manifest && root.manifest.version ? root.manifest.version : "1.0.1"
+        const expectedVersion=root.manifest && root.manifest.version ? root.manifest.version : "1.0.2"
         if (Number(data.apiVersion || 0) !== 1 || String(data.version || "") !== String(expectedVersion)) {
             root.connected=false
             root.loading=false
@@ -63,6 +63,8 @@ Item {
     }
     Process {
         id: watch
+        // The control bridge caps each daemon message at 256 KiB and the
+        // process stream at 16 MiB before writing anything to this parser.
         command: ["omarchy-drive-control", "watch"]
         running: true
         stdout: SplitParser { onRead: data => {
@@ -110,6 +112,8 @@ Item {
 
     Process {
         id: statusPoll
+        // One-shot RPC responses are capped at 256 KiB by the control bridge
+        // before they reach Quickshell's stdout parser.
         command: ["omarchy-drive-control", "status"]
         running: true
         stdout: SplitParser { onRead: data => {

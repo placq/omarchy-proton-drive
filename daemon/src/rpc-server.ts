@@ -173,7 +173,7 @@ export class RpcServer {
   private async dispatch(method: string, p: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
     const id = () => requiredId(p.nodeId, "nodeId");
     switch (method) {
-      case "GetVersion": return { version: "1.0.1", apiVersion: 1, provider: this.engine.provider.kind, readOnly: false };
+      case "GetVersion": return { version: "1.0.2", apiVersion: 1, provider: this.engine.provider.kind, readOnly: false };
       case "GetStatus": {
         const { account, connectionError, checkedAt } = await this.accountStatus();
         const authenticated = this.engine.provider.kind === "fake" || account !== null;
@@ -181,7 +181,7 @@ export class RpcServer {
           connected: authenticated && connectionError === "", authenticated,
           readOnly: false, provider: this.engine.provider.kind,
           account, connectionError, checkedAt, cacheBytes: await this.engine.cacheUsage(),
-          version: "1.0.1", apiVersion: 1, transfers: this.engine.transfers.list(true),
+          version: "1.0.2", apiVersion: 1, transfers: this.engine.transfers.list(true),
           conflicts: this.engine.conflicts(),
         };
       }

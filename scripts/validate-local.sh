@@ -33,6 +33,12 @@ const releaseScript = fs.readFileSync('scripts/prepare-release.sh', 'utf8');
 if (!releaseScript.includes('scripts/clean-machine-acceptance.sh') || !releaseScript.includes('PKGBUILD clean-machine-acceptance.sh')) {
   throw new Error('release preparation does not checksum the clean-machine acceptance runner');
 }
+const barWidget = fs.readFileSync('omarchy/BarWidget.qml', 'utf8');
+const textSinkCount = (barWidget.match(/(^|\n)\s*Text\s*\{/g) || []).length;
+const plainTextSinkCount = (barWidget.match(/^\s*textFormat:\s*Text\.PlainText\s*$/gm) || []).length;
+if (textSinkCount !== plainTextSinkCount) {
+  throw new Error(`all bar Text sinks must force Text.PlainText: ${plainTextSinkCount}/${textSinkCount}`);
+}
 for (const entry of Object.values(manifest.entryPoints)) {
   if (typeof entry !== 'string' || entry.startsWith('/') || entry.includes('..')) throw new Error(`unsafe entry point: ${entry}`);
 }

@@ -1,6 +1,6 @@
 # Test status
 
-Automated checks verified 2026-08-22 for the unreleased `1.0.1` tree: the 77-test provider/core suite, 5-test script helper suite, 2-test shared RPC client suite and 7-test pure Nautilus helper suite pass in this repository. Desktop and real-account coverage was last exercised on Omarchy Quattro workstations as recorded below.
+Automated checks verified 2026-08-22 for the unreleased `1.0.2` tree: the 77-test provider/core suite, 5-test script helper suite, 2-test shared RPC client suite and 7-test pure Nautilus helper suite pass in this repository. Desktop and real-account coverage was last exercised on Omarchy Quattro workstations as recorded below.
 
 | Area | Coverage | Status |
 |---|---|---|
@@ -19,7 +19,7 @@ Automated checks verified 2026-08-22 for the unreleased `1.0.1` tree: the 77-tes
 | FUSE runtime | real daemon + pyfuse3 mount, browse/open/write/rename/move/delete, desktop-style atomic replace, hostile names, Unicode normalisation, link rejection and service restart recovery | Automated with fake provider; the normal-operation matrix also passed with the installed `0.3.0-alpha.2` package against the dedicated real-account directory |
 | Shell/tooling/package | syntax validation, staged Arch package layout/import verification, isolated dirty-staging uninstall refusal and checksummed clean-machine harness tamper rejection | Automated |
 | Dependency security | full `npm audit`, including the build/test toolchain | Automated, 0 known npm vulnerabilities |
-| Pinned Proton CLI dependency review | frozen upstream lockfile; separate full `bun audit` | 51 upstream monorepo advisories (29 high, 19 moderate, 3 low; no critical) require upstream-pin/reachability review before 1.0.1 publication |
+| Pinned Proton CLI dependency review | frozen upstream lockfile; separate full `bun audit` | 51 upstream monorepo advisories (29 high, 19 moderate, 3 low; no critical) require upstream-pin/reachability review before 1.0.2 publication |
 | Real Proton auth/session | official browser login, Secret Service session, root listing, on-demand download and automated expired/revoked error classification | Runtime path passed; manual remote revocation remains a publication gate |
 | Omarchy/Quickshell/Nautilus runtime | installed plugin validation/version match, right-side bar placement, theme-aware icon, account/storage panel, hidden FUSE mount, single sidebar bookmark and clean service recovery | Passed on Omarchy Quattro with the writable real-account provider |
 | Login/logout recovery UX | stale mount cleanup, retry recovery, animated loading state and no transient integration error during normal startup/logout | Passed on Omarchy Quattro with a real account |

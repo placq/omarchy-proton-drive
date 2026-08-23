@@ -18,6 +18,6 @@ The npm lockfile records package integrity. CI runs the full `npm audit`, includ
 
 As of 2026-08-22, a full `bun audit` of that pinned upstream monorepo reports 51 advisories (29 high, 19 moderate and 3 low) across both build tooling and transitive packages; no critical advisory is reported. Reachability in the compiled CLI has not been established. This is an upstream release-review item, not silently ignored evidence: changing or overriding those packages requires a new Proton source pin, compatibility review and real-account regression run.
 
-The authenticated integration identifies itself with `x-pm-appversion: external-drive-omarchy_drive@1.0.1`; the constant is exported by `ProtonSdkProvider`. It never impersonates a first-party client.
+The authenticated integration identifies itself with `x-pm-appversion: external-drive-omarchy_drive@1.0.2`; the constant is exported by `ProtonSdkProvider`. It never impersonates a first-party client.
 
 The official CLI's authentication layer is source-available in the SDK monorepo, but it imports `proton-drive-sdk-account` through the local workspace path `file:../incubating/account/js`. That account package is not a published npm dependency, so the code cannot currently be consumed as a normal, independently versioned production dependency. See [AUTH-INTEGRATION.md](AUTH-INTEGRATION.md).
