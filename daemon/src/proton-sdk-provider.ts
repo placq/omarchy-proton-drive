@@ -1,21 +1,33 @@
 import type { DriveEvent, DriveNode } from "./domain.ts";
+import { AuthenticationRequiredError } from "./domain.ts";
+import type { AccountInfo } from "./provider.ts";
 import type { DownloadResult, DriveProvider, UploadInput } from "./provider.ts";
 import { createReadStream, createWriteStream } from "node:fs";
 import { Readable, Writable } from "node:stream";
 
 type StreamWritable = WritableStream<Uint8Array>;
-export const PROTON_APP_VERSION = "external-drive-omarchy_drive@1.0.2";
+// Versions live in sdk-versions.ts: PROTON_APP_VERSION = "external-drive-omarchy_drive@1.0.2".
+import { PROTON_APP_VERSION } from "./sdk-versions.ts";
+export { PROTON_APP_VERSION };
 type SdkNode = Record<string, unknown>;
-interface SdkController { completion(): Promise<Record<string, unknown>>; }
+type SdkNodeResult = { uid: string; ok: boolean; error?: unknown; newUid?: string };
+interface SdkDownloadController { completion(): Promise<void>; }
+interface SdkUploadController { completion(): Promise<{ nodeUid: string; nodeRevisionUid: string }>; }
 interface SdkDriveEvent { type: string; eventId: string; nodeUid?: string; isTrashed?: boolean; }
+interface SdkUploader {
+  uploadFromStream(stream: ReadableStream<Uint8Array>, thumbnails: unknown[], onProgress?: (uploadedBytes: number) => void): Promise<SdkUploadController>;
+}
+export interface SdkAddressLike {
+  getOwnPrimaryAddress(): Promise<{ email: string }>;
+}
 interface SdkClientLike {
   getMyFilesRootFolder(): Promise<SdkNode>; getNode(uid: string): Promise<SdkNode>;
   iterateFolderChildrenNodeUids(uid: string): AsyncIterable<string>;
-  getFileDownloader(uid: string): Promise<{ downloadToStream(stream: WritableStream<Uint8Array>, progress: (n: number) => void): SdkController }>;
-  getFileRevisionUploader(uid: string, metadata: Record<string, unknown>): Promise<{ uploadFromStream(stream: ReadableStream<Uint8Array>, thumbnails: unknown[], progress: (n: number) => void): Promise<SdkController> }>;
-  getFileUploader(parentUid: string, name: string, metadata: Record<string, unknown>): Promise<{ uploadFromStream(stream: ReadableStream<Uint8Array>, thumbnails: unknown[], progress: (n: number) => void): Promise<SdkController> }>;
+  getFileDownloader(uid: string): Promise<{ downloadToStream(stream: WritableStream<Uint8Array>, onProgress?: (downloadedBytes: number) => void): SdkDownloadController }>;
+  getFileRevisionUploader(uid: string, metadata: Record<string, unknown>): Promise<SdkUploader>;
+  getFileUploader(parentUid: string, name: string, metadata: Record<string, unknown>): Promise<SdkUploader>;
   createFolder(parentUid: string, name: string): Promise<SdkNode>; renameNode(uid: string, name: string): Promise<SdkNode>;
-  moveNodes(uids: string[], parentUid: string): AsyncIterable<unknown>; trashNodes(uids: string[]): AsyncIterable<unknown>;
+  moveNodes(uids: string[], parentUid: string): AsyncIterable<SdkNodeResult>; trashNodes(uids: string[]): AsyncIterable<SdkNodeResult>;
   iterateEvents(scopeId: string, lastEventId?: string): AsyncIterable<SdkDriveEvent>;
 }
 
@@ -40,9 +52,20 @@ function dateMillis(value: unknown): number {
 /** Thin adapter only. Authentication and construction of ProtonDriveClient live outside it. */
 export class ProtonSdkProvider implements DriveProvider {
   readonly kind = "proton-sdk" as const;
+  readonly progressSupported = true;
   private readonly client: SdkClientLike;
+  private readonly account?: SdkAddressLike;
   private eventScopeId?: string;
-  constructor(client: SdkClientLike) { this.client = client; }
+  constructor(client: SdkClientLike, account?: SdkAddressLike) { this.client = client; this.account = account; }
+  async getAccountInfo(): Promise<AccountInfo | null> {
+    if (!this.account) return null;
+    try { const address = await this.account.getOwnPrimaryAddress(); return { email: address.email, usedBytes: 0, totalBytes: 0 }; }
+    catch (error) {
+      if (error instanceof AuthenticationRequiredError) return null;
+      if (/401|session|log ?in|refresh/i.test(String(error))) return null;
+      return null;
+    }
+  }
   private map(value: SdkNode): DriveNode {
     const activeRevision = value.activeRevision as Record<string, unknown> | undefined;
     return {
@@ -78,8 +101,8 @@ export class ProtonSdkProvider implements DriveProvider {
   }
   async createFolder(parentId: string, name: string, signal?: AbortSignal): Promise<DriveNode> { signal?.throwIfAborted(); return this.map(await this.client.createFolder(parentId, name)); }
   async rename(nodeId: string, name: string, _knownNode?: DriveNode, signal?: AbortSignal): Promise<DriveNode> { signal?.throwIfAborted(); return this.map(await this.client.renameNode(nodeId, name)); }
-  async move(nodeId: string, parentId: string, _knownNode?: DriveNode, signal?: AbortSignal): Promise<DriveNode> { signal?.throwIfAborted(); for await (const result of this.client.moveNodes([nodeId], parentId)) { signal?.throwIfAborted(); const value = result as unknown as Record<string, unknown>; if (value.error) throw value.error; } return this.getNode(nodeId); }
-  async trash(nodeId: string, signal?: AbortSignal): Promise<void> { signal?.throwIfAborted(); for await (const result of this.client.trashNodes([nodeId])) { signal?.throwIfAborted(); const value = result as unknown as Record<string, unknown>; if (value.error) throw value.error; } }
+  async move(nodeId: string, parentId: string, _knownNode?: DriveNode, signal?: AbortSignal): Promise<DriveNode> { signal?.throwIfAborted(); for await (const result of this.client.moveNodes([nodeId], parentId)) { signal?.throwIfAborted(); if (!result.ok && result.error) throw result.error; } return this.getNode(nodeId); }
+  async trash(nodeId: string, signal?: AbortSignal): Promise<void> { signal?.throwIfAborted(); for await (const result of this.client.trashNodes([nodeId])) { signal?.throwIfAborted(); if (!result.ok && result.error) throw result.error; } }
   async *getEvents(afterId?: string): AsyncIterable<DriveEvent> {
     if (!this.eventScopeId) await this.getRoot();
     if (!this.eventScopeId) throw new Error("My Files root has no tree event scope");

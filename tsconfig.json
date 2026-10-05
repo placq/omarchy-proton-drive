@@ -8,8 +8,21 @@
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": false,
     "skipLibCheck": true,
-    "types": ["node"],
+    "types": [
+      "node"
+    ],
     "noEmit": true
   },
-  "include": ["daemon/**/*.ts"]
+  "include": [
+    "daemon/**/*.ts"
+  ],
+  "paths": {
+    "proton-drive-sdk-account": [
+      "vendor/proton-drive-sdk-account/src/index.ts"
+    ]
+  },
+  "exclude": [
+    "vendor/**/provenance-package.json",
+    "daemon/src/sdk-client.ts"
+  ]
 }

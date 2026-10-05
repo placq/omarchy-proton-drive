@@ -13,7 +13,9 @@ sha256sums=('@SOURCE_SHA256@')
 package() {
   local src="$srcdir/omarchy-drive-@VERSION@"
   install -d "$pkgdir/usr/lib/omarchy-drive" "$pkgdir/usr/bin"
-  cp -a "$src/daemon" "$src/filesystem" "$src/ipc" "$src/package.json" "$pkgdir/usr/lib/omarchy-drive/"
+  cp -a "$src/daemon" "$src/filesystem" "$src/ipc" "$src/package.json" "$src/vendor" "$pkgdir/usr/lib/omarchy-drive/"
+  cp -a "$src/node_modules" "$pkgdir/usr/lib/omarchy-drive/node_modules"
+  find "$pkgdir/usr/lib/omarchy-drive/node_modules/@protontech/crypto/src/pmcrypto" -name '*-rej' -delete 2>/dev/null || true
   install -Dm755 "$src/scripts/omarchy-drive-control" "$pkgdir/usr/bin/omarchy-drive-control"
   install -Dm644 "$src/nautilus/extension/omarchy_drive.py" "$pkgdir/usr/share/nautilus-python/extensions/omarchy_drive.py"
   install -Dm644 "$src/nautilus/extension/drive_logic.py" "$pkgdir/usr/share/nautilus-python/extensions/drive_logic.py"

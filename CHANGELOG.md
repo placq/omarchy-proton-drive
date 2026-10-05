@@ -2,6 +2,8 @@
 
 ## 1.0.2 (unreleased)
 
+- Make the direct SDK provider selectable with `OMARCHY_DRIVE_PROVIDER=proton-sdk`: the daemon runs Proton cryptography and API calls in-process on top of the session snapshot the official CLI keeps in the OS secret service, and streams downloads/uploads with progress instead of spawning a CLI process per operation while `proton-cli` remains the default provider.
+
 - Separate cached-content revisions from current remote metadata and invalidate stale or unverifiable cache bytes before they can become an upload base.
 - Refuse non-empty FUSE `rmdir`, remove local cache on Proton trash, and prune orphaned cache downloads at startup.
 - Refresh the official CLI revision guard immediately before upload and cancel cooperative remote mutations when the RPC deadline or client connection ends.
