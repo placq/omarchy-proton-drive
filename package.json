@@ -13,8 +13,13 @@
     "validate": "./scripts/validate-local.sh",
     "start:fake": "OMARCHY_DRIVE_PROVIDER=fake ./scripts/node-ts.sh daemon/src/main.ts"
   },
+  "patchedDependencies": {
+    "@protontech/crypto@2.0.0": "patches/@protontech/crypto@2.0.0.patch"
+  },
   "devDependencies": {
+    "@protontech/crypto": "2.0.0",
     "@protontech/drive-sdk": "0.21.0",
+    "ky": "1.14.3",
     "@types/node": "24.3.0",
     "typescript": "5.9.2"
   }
